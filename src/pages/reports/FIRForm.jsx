@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { useNavigate } from 'react-router-dom';
 import { Send, ArrowLeft, Calendar, FileType } from 'lucide-react';
 
@@ -42,14 +42,11 @@ export default function FIRForm() {
     setLoading(true);
     try {
       // Check if entry already exists for this PS + Quarter + Year
-      const { data: existing, error: checkError } = await supabase
-        .from('fir_reports')
-        .select('id')
-        .eq('police_station', formData.policeStation)
-        .eq('quarter', formData.quarter)
-        .eq('year', formData.year);
-      
-      if (checkError) throw checkError;
+      const existing = await api.reports.firList({
+        police_station: formData.policeStation,
+        quarter: formData.quarter,
+        year: formData.year
+      });
 
       if (existing && existing.length > 0) {
         toast.warning(`Report for ${formData.policeStation} in ${formData.quarter} ${formData.year} already exists.`);
@@ -62,7 +59,6 @@ export default function FIRForm() {
         range_id: user.rangeId || '',
         district_id: user.districtId || '',
         unit_id: user.unitId || '',
-        created_by_user_id: user.id || null, // Assuming user.id from AuthContext
         
         quarter: formData.quarter,
         year: formData.year,
@@ -74,17 +70,14 @@ export default function FIRForm() {
         pending: parseInt(formData.pending) || 0,
         cognizable: parseInt(formData.cognizable) || 0,
         non_cognizable: parseInt(formData.non_cognizable) || 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
       };
 
-      const { error } = await supabase.from('fir_reports').insert([payload]);
-      if (error) throw error;
+      await api.reports.firCreate(payload);
 
       toast.success('FIR data submitted successfully.');
       navigate('/reports/fir');
     } catch (err) {
-      console.error('FIR submit error:', err);
+      if (import.meta.env.DEV) console.error('FIR submit error:', err);
       toast.error('Failed to submit FIR data.');
     } finally {
       setLoading(false);

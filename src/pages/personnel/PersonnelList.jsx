@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { Search, Plus, Eye, Edit, Trash2, Copy, Download,
   Filter, ChevronLeft, ChevronRight, Users
 } from 'lucide-react';
@@ -44,48 +44,25 @@ export default function PersonnelList() {
     loadPersonnel();
   }, [user]);
 
-  // Load Master Data for Filters
   useEffect(() => {
     if (!user?.stateId) return;
-
     async function loadMasterConfig() {
       try {
-        const { data: fields, error: fError } = await supabase
-          .from('master_field_types')
-          .select('*')
-          .eq('state_id', user.stateId)
-          .eq('is_active', true);
-
-        if (fError) throw fError;
-        setMasterFields(fields.map(f => ({
-          id: f.id,
-          fieldName: f.field_name,
-          displayName: f.display_name,
-          personnelFieldName: f.personnel_field_name,
+        const fields = await api.admin.fieldTypes(user.stateId);
+        setMasterFields((fields||[]).map(f => ({
+          id: f.id, fieldName: f.field_name,
+          displayName: f.display_name, personnelFieldName: f.personnel_field_name,
         })));
-
-        const { data: values, error: vError } = await supabase
-          .from('master_dropdown_values')
-          .select('*')
-          .eq('state_id', user.stateId)
-          .eq('is_active', true);
-        
-        if (vError) throw vError;
-        setAllMasterData(values.map(v => {
-          const field = fields.find(f => f.id === v.field_type_id);
-          return {
-            id: v.id,
-            value: v.value,
-            fieldType: field ? field.field_name : 'unknown',
-            displayOrder: v.display_order,
-            accessLevel: v.access_level
-          };
-        }));
+        const values = await api.admin.dropdownValues({ stateId: user.stateId });
+        setAllMasterData((values||[]).map(v => ({
+          id: v.id, value: v.value,
+          fieldType: v.field_name || 'unknown',
+          displayOrder: v.display_order, accessLevel: v.access_level,
+        })));
       } catch (err) {
         if (import.meta.env.DEV) console.error('Filter master config error:', err);
       }
     }
-
     loadMasterConfig();
   }, [user]);
 
@@ -112,56 +89,45 @@ export default function PersonnelList() {
 
   async function handleResetPersonnel() {
     if (!isSuperAdmin) return;
-    const confirm = window.confirm('DANGER: This will delete ALL personnel records from the database. This action cannot be undone. Proceed?');
+    const confirm = window.confirm('DANGER: This will delete ALL personnel records. Proceed?');
     if (!confirm) return;
-
     try {
       setLoading(true);
-      const { error } = await supabase
-        .from('personnel')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete everything
-      
-      if (error) throw error;
-
-      toast.success(`Records reset initiated.`);
+      // Soft delete all via API (loop — no bulk delete endpoint needed)
+      const all = await api.personnel.list();
+      for (const p of (all||[])) { await api.personnel.remove(p.id); }
+      toast.success('Records reset initiated.');
       loadPersonnel();
     } catch (err) {
-      if (import.meta.env.DEV) console.error('Reset error:', err);
       toast.error('Failed to reset personnel data.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function loadCategories() {
     try {
-      const { data, error } = await supabase.from('unit_categories').select('name').order('name');
-      if (!error) setUnitCategories(data.map(d => d.name));
+      const data = await api.hierarchy.unitCategories();
+      if (data) setUnitCategories(data.map(d => d.name));
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to load categories:', err);
     }
   }
 
   async function loadHierarchyCounts() {
-    // Initial load restricted by role
     if (isSuperAdmin) {
-      const { data, error } = await supabase.from('states').select('*').order('name');
-      if (!error) setStates(data.map(d => ({ id: d.id, stateName: d.name })));
+      const data = await api.hierarchy.states();
+      if (data) setStates(data.map(d => ({ id: d.id, stateName: d.name })));
     } else {
       if (user?.stateId) {
         setHierFilters(p => ({ ...p, stateId: user.stateId }));
-        const { data: sData } = await supabase.from('states').select('name').eq('id', user.stateId).single();
-        if (sData) setStates([{ id: user.stateId, stateName: sData.name }]);
-        
+        const sData = await api.hierarchy.states();
+        const myState = (sData||[]).find(s => s.id === user.stateId);
+        if (myState) setStates([{ id: myState.id, stateName: myState.name }]);
         if (isStateAdmin) loadRanges(user.stateId);
         if (user?.rangeId) {
           setHierFilters(p => ({ ...p, rangeId: user.rangeId }));
           if (isRangeAdmin) loadDistricts(user.rangeId);
         }
-        if (user?.districtId) {
-          setHierFilters(p => ({ ...p, districtId: user.districtId }));
-        }
+        if (user?.districtId) setHierFilters(p => ({ ...p, districtId: user.districtId }));
         if (user?.unitId) {
           setHierFilters(p => ({ ...p, unitId: user.unitId }));
           if (isUnitAdmin) loadSubUnits(user.unitId, user.districtId);
@@ -177,11 +143,23 @@ export default function PersonnelList() {
     // Clear downstream filters
     if (field === 'stateId') {
       nextFilters.rangeId = ''; nextFilters.districtId = ''; nextFilters.unitType = ''; nextFilters.unitId = ''; nextFilters.subUnitId = '';
-      if (value) loadRanges(value); else setRanges([]);
-      setDistricts([]); setUnits([]); setSubUnits([]);
+      if (value) {
+        loadRanges(value);
+        loadDistricts(null, value); // Fallback: load districts by stateId immediately
+      } else {
+        setRanges([]);
+        setDistricts([]);
+      }
+      setUnits([]); setSubUnits([]);
     } else if (field === 'rangeId') {
       nextFilters.districtId = ''; nextFilters.unitType = ''; nextFilters.unitId = ''; nextFilters.subUnitId = '';
-      if (value) loadDistricts(value); else setDistricts([]);
+      if (value) {
+        loadDistricts(value, null);
+      } else if (nextFilters.stateId) {
+        loadDistricts(null, nextFilters.stateId); // Fallback if range is cleared
+      } else {
+        setDistricts([]);
+      }
       setUnits([]); setSubUnits([]);
     } else if (field === 'districtId') {
       nextFilters.unitType = ''; nextFilters.unitId = ''; nextFilters.subUnitId = '';
@@ -208,60 +186,38 @@ export default function PersonnelList() {
   }
 
   async function loadRanges(stateId) {
-    const { data, error } = await supabase.from('ranges').select('*').eq('state_id', stateId).order('name');
-    if (!error) setRanges(data.map(d => ({ id: d.id, rangeName: d.name })));
+    const data = await api.hierarchy.ranges(stateId);
+    if (data) setRanges(data.map(d => ({ id: d.id, rangeName: d.name })));
   }
 
-  async function loadDistricts(rangeId) {
-    const { data, error } = await supabase.from('districts').select('*').eq('range_id', rangeId).order('name');
-    if (!error) setDistricts(data.map(d => ({ id: d.id, districtName: d.name })));
+  async function loadDistricts(rangeId, stateId) {
+    const params = {};
+    if (rangeId) params.rangeId = rangeId;
+    else if (stateId) params.stateId = stateId;
+    
+    if (!params.rangeId && !params.stateId) return;
+
+    const data = await api.hierarchy.districts(params);
+    if (data) setDistricts(data.map(d => ({ id: d.id, districtName: d.name })));
   }
 
   async function loadUnits(districtId, unitType) {
     if (!districtId || !unitType) return;
-    const { data, error } = await supabase
-      .from('units')
-      .select('*')
-      .eq('district_id', districtId)
-      .eq('unit_type', unitType)
-      .order('name');
-    if (!error) setUnits(data.map(d => ({ id: d.id, unitName: d.name })));
+    const data = await api.hierarchy.units({ districtId, unitType });
+    if (data) setUnits(data.map(d => ({ id: d.id, unitName: d.name })));
   }
 
   async function loadSubUnits(unitId, districtId) {
     if (!unitId || !districtId) return;
-    const { data, error } = await supabase
-      .from('sub_units')
-      .select('*')
-      .eq('unit_id', unitId)
-      .eq('district_id', districtId)
-      .order('name');
-    if (!error) setSubUnits(data.map(d => ({ id: d.id, subUnitName: d.name })));
+    const data = await api.hierarchy.subUnits({ unitId, districtId });
+    if (data) setSubUnits(data.map(d => ({ id: d.id, subUnitName: d.name })));
   }
 
   async function loadPersonnel() {
     try {
       setLoading(true);
-      let queryBuilder = supabase.from('personnel').select('*');
-
-      // Role-based filtering
-      if (isUnitAdmin && user?.unitId) {
-        queryBuilder = queryBuilder.eq('current_unit_id', user.unitId);
-      } else if (isDistrictAdmin && user?.districtId) {
-        queryBuilder = queryBuilder.eq('district_id', user.districtId);
-      } else if (isRangeAdmin && user?.rangeId) {
-        queryBuilder = queryBuilder.eq('range_id', user.rangeId);
-      } else if (isStateAdmin && user?.stateId) {
-        queryBuilder = queryBuilder.eq('state_id', user.stateId);
-      } else if (!isSuperAdmin && user?.stateId) {
-        queryBuilder = queryBuilder.eq('state_id', user.stateId);
-      }
-
-      const { data, error } = await queryBuilder;
-      if (error) throw error;
-
-      // Map snake_case from DB to camelCase for UI compatibility if needed
-      const mappedData = data.map(d => ({
+      const data = await api.personnel.list();
+      const mappedData = (data||[]).map(d => ({
         id: d.id,
         beltNumber: d.belt_number,
         payCode: d.pay_code,
@@ -278,16 +234,13 @@ export default function PersonnelList() {
         unitType: d.unit_type,
         currentUnitId: d.current_unit_id,
         currentSubUnitId: d.current_sub_unit_id,
-        isDeleted: d.is_deleted
+        isDeleted: d.is_deleted,
       }));
-
       setPersonnel(mappedData);
     } catch (e) {
       if (import.meta.env.DEV) console.error('Personnel load error:', e);
       toast.error('Failed to load personnel records.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   // Client-side search and filter
@@ -348,17 +301,7 @@ export default function PersonnelList() {
       return;
     }
     try {
-      const { error } = await supabase
-        .from('personnel')
-        .update({
-          is_deleted: true,
-          updated_at: new Date().toISOString(),
-          updated_by_user_id: user.id, // AuthContext maps user.uid to user.id or uid
-        })
-        .eq('id', person.id);
-
-      if (error) throw error;
-
+      await api.personnel.remove(person.id);
       toast.success(`${person.fullName} has been removed.`);
       setPersonnel(prev => prev.filter(p => p.id !== person.id));
       setDeleteModal(null);
@@ -372,16 +315,12 @@ export default function PersonnelList() {
       <div className="page-header">
         <h2>Personnel Records</h2>
         <div className="page-header-actions">
-          {!isUnitAdmin && (
-            <>
-              <button className="btn btn-secondary" onClick={() => navigate('/personnel/import')}>
-                <Download size={16} /> Import
-              </button>
-              <button className="btn btn-primary" onClick={() => navigate('/personnel/add')}>
-                <Plus size={16} /> Add Personnel
-              </button>
-            </>
-          )}
+          <button className="btn btn-secondary" onClick={() => navigate('/personnel/import')}>
+            <Download size={16} /> Import
+          </button>
+          <button className="btn btn-primary" onClick={() => navigate('/personnel/add')}>
+            <Plus size={16} /> Add Personnel
+          </button>
         </div>
       </div>
 
@@ -463,7 +402,7 @@ export default function PersonnelList() {
               <input className="form-input form-input-sm" disabled value={user?.districtName || 'Locked District'} title="Auto-filled from your hierarchy" />
             ) : (
               <select className="form-select form-select-sm" 
-                value={hierFilters.districtId} disabled={!hierFilters.rangeId}
+                value={hierFilters.districtId} disabled={!hierFilters.rangeId && !hierFilters.stateId}
                 onChange={e => handleHierChange('districtId', e.target.value)}>
                 <option value="">All Districts</option>
                 {districts.map(d => <option key={d.id} value={d.id}>{d.districtName}</option>)}

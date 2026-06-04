@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import * as XLSX from 'xlsx';
 import {
   Upload, FileSpreadsheet, ArrowLeft, ArrowRight, Check,
@@ -28,7 +28,7 @@ const SYSTEM_FIELDS = [
   { key: 'dateOfLastPromotion', label: 'Date of Last Promotion', required: false },
   { key: 'retirementDate', label: 'Retirement Date', required: false },
   { key: 'village', label: 'Village / Town', required: false },
-  { key: 'policeStation', label: 'Police Station', required: false },
+  { key: 'policeStation', label: 'Police Station (Home / Native)', required: false },
   { key: 'homeDistrict', label: 'Home District', required: false },
   { key: 'bloodGroup', label: 'Blood Group', required: false },
   { key: 'mobileNumber', label: 'Mobile Number', required: true },
@@ -51,7 +51,9 @@ const SYSTEM_FIELDS = [
   { key: 'unitType', label: 'Unit Category', required: false },
   { key: 'currentUnitId', label: 'Unit Name', required: false },
   { key: 'currentSubUnitId', label: 'Sub-Unit Name', required: false },
+  { key: 'graduationDegree', label: 'Graduation Degree or Below', required: false },
   { key: 'subjectGraduation', label: 'Subject (Graduation)', required: false },
+  { key: 'pgDegree', label: 'Post Graduation Degree or Above', required: false },
   { key: 'subjectPostGraduation', label: 'Subject (Post Graduation)', required: false },
   { key: 'swatAwtCourse', label: 'SWAT/AWT Course', required: false },
   { key: 'rBatch', label: 'R/BATCH', required: false },
@@ -62,6 +64,53 @@ const SYSTEM_FIELDS = [
 
 const STEPS = ['Upload File', 'Map Fields', 'Validate', 'Import'];
 
+// Date fields that need format conversion
+const DATE_FIELDS = ['dateOfBirth', 'dateOfEnlistment', 'dateOfLastPromotion', 'retirementDate', 'dateOfPosting'];
+
+/**
+ * Converts various date formats to yyyy-mm-dd for DB storage.
+ * Handles: DD.MM.YY, DD.MM.YYYY, DD-MM-YYYY, DD/MM/YYYY, Excel serial numbers, ISO strings.
+ */
+function parseExcelDate(value) {
+  if (!value) return null;
+  const str = String(value).trim();
+
+  // ISO datetime with timezone e.g. "1984-05-12T00:00:00.000Z" (XLSX cellDates:true output)
+  const isoFull = str.match(/^(\d{4}-\d{2}-\d{2})T/);
+  if (isoFull) return isoFull[1];
+
+  // Already ISO date yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  // Excel serial number (numeric, 4-5 digits)
+  if (/^\d{4,5}$/.test(str)) {
+    const d = new Date((parseInt(str) - 25569) * 86400 * 1000);
+    if (!isNaN(d)) return d.toISOString().split('T')[0];
+  }
+
+  // DD.MM.YY or DD.MM.YYYY
+  const dotMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
+  if (dotMatch) {
+    let [, dd, mm, yy] = dotMatch;
+    if (yy.length === 2) yy = parseInt(yy) <= 30 ? '20' + yy : '19' + yy;
+    return `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+  }
+
+  // DD-MM-YYYY or DD/MM/YYYY
+  const dashMatch = str.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2}|\d{4})$/);
+  if (dashMatch) {
+    let [, dd, mm, yy] = dashMatch;
+    if (yy.length === 2) yy = parseInt(yy) <= 30 ? '20' + yy : '19' + yy;
+    return `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+  }
+
+  // Try native Date parse as last resort
+  const d = new Date(str);
+  if (!isNaN(d)) return d.toISOString().split('T')[0];
+
+  return null; // unparseable
+}
+
 // Smart auto-mapping of columns to system fields
 function autoMap(fileColumns) {
   const mapping = {};
@@ -70,22 +119,22 @@ function autoMap(fileColumns) {
   const ALIASES = {
     fullName: ['name', 'fullname', 'personnelname', 'employeename', 'officername'],
     fatherName: ['fathername', 'father', 'fathersname'],
-    beltNumber: ['beltnumber', 'beltno', 'belt'],
+    beltNumber: ['beltnumber', 'beltno', 'belt', 'no'],
     payCode: ['paycode', 'payid', 'employeeid', 'empid', 'empcode'],
     rank: ['rank', 'designation', 'post'],
     mobileNumber: ['mobile', 'mobilenumber', 'phone', 'phonenumber', 'contact', 'mobileno'],
     gender: ['gender', 'sex'],
-    dateOfBirth: ['dob', 'dateofbirth', 'birthdate'],
+    dateOfBirth: ['dob', 'd.o.b', 'dateofbirth', 'birthdate', 'dateofbirth', 'birth'],
     religion: ['religion'],
     caste: ['caste'],
     category: ['category', 'reservation', 'cat'],
     cadre: ['cadre'],
-    serviceType: ['servicetype', 'type'],
-    dateOfEnlistment: ['doe', 'dateofenlistment', 'joiningdate', 'doj'],
-    dateOfLastPromotion: ['lastpromotion', 'promotiondate'],
-    retirementDate: ['retirementdate', 'dor', 'retirement'],
+    serviceType: ['servicetype', 'type', 'permanenttemporary', 'permanenttemporarywithorwithoutorder', 'permanent', 'temporary', 'appointmenttype'],
+    dateOfEnlistment: ['doe', 'd.o.e', 'dateofenlistment', 'joiningdate', 'doj', 'enlistment'],
+    dateOfLastPromotion: ['lastpromotion', 'promotiondate', 'dateoflastpromotion', 'dolp'],
+    retirementDate: ['retirementdate', 'dor', 'retirement', 'dateofretirement'],
     village: ['village', 'town', 'address'],
-    policeStation: ['policestation', 'ps', 'thana'],
+    policeStation: ['policestation', 'ps', 'thana', 'homeps', 'nativeps', 'homepolicestation'],
     homeDistrict: ['homedistrict', 'district'],
     bloodGroup: ['bloodgroup', 'blood'],
     alternateContact: ['alternatecontact', 'altcontact'],
@@ -101,8 +150,10 @@ function autoMap(fileColumns) {
     unitType: ['unittype', 'unitcategory'],
     currentUnitId: ['unit', 'unitname', 'currentunit'],
     currentSubUnitId: ['subunit', 'subunitname', 'currentsubunit'],
-    subjectGraduation: ['graduation', 'gradsubject', 'subjectgraduation'],
-    subjectPostGraduation: ['postgraduation', 'pgsubject', 'subjectpostgraduation'],
+    graduationDegree: ['graduationorbelow', 'graduationbelow', 'graduation', 'degree', 'educationlevel', 'qualificationlevel'],
+    subjectGraduation: ['gradsubject', 'subjectgraduation', 'subject'],
+    pgDegree: ['postgraduationandabove', 'postgraduationabove', 'postgrad', 'pgdegree', 'pgqualification'],
+    subjectPostGraduation: ['pgsubject', 'subjectpostgraduation', 'subject2subjects', 'subject2'],
     swatAwtCourse: ['swat', 'awt', 'swatawtcourse'],
     rBatch: ['rbatch', 'batch'],
     tDutyOrder: ['tdutyorder', 'dutyorder'],
@@ -150,24 +201,24 @@ export default function ExcelImport() {
     async function fetchHierarchy() {
       try {
         const [sRes, rRes, dRes, cRes, uRes, suRes] = await Promise.all([
-          supabase.from('states').select('*'),
-          supabase.from('ranges').select('*'),
-          supabase.from('districts').select('*'),
-          supabase.from('unit_categories').select('*'),
-          supabase.from('units').select('*'),
-          supabase.from('sub_units').select('*')
+          api.hierarchy.states(),
+          api.hierarchy.ranges(),
+          api.hierarchy.districts(),
+          api.hierarchy.unitCategories(),
+          api.hierarchy.units(),
+          api.hierarchy.subUnits()
         ]);
 
         const maps = {
           states: {}, ranges: {}, districts: {}, categories: [], units: {}, subUnits: {}
         };
 
-        sRes.data?.forEach(d => { maps.states[normalizeName(d.name)] = d.id; });
-        rRes.data?.forEach(d => { maps.ranges[normalizeName(d.name)] = d.id; });
-        dRes.data?.forEach(d => { maps.districts[normalizeName(d.name)] = d.id; });
-        maps.categories = cRes.data?.map(d => normalizeName(d.name)) || [];
-        uRes.data?.forEach(d => { maps.units[normalizeName(d.name)] = d.id; });
-        suRes.data?.forEach(d => { maps.subUnits[normalizeName(d.name)] = d.id; });
+        (sRes || []).forEach(d => { maps.states[normalizeName(d.name)] = d.id; });
+        (rRes || []).forEach(d => { maps.ranges[normalizeName(d.name)] = d.id; });
+        (dRes || []).forEach(d => { maps.districts[normalizeName(d.name)] = d.id; });
+        maps.categories = (cRes || []).map(d => normalizeName(d.name || d));
+        (uRes || []).forEach(d => { maps.units[normalizeName(d.name)] = d.id; });
+        (suRes || []).forEach(d => { maps.subUnits[normalizeName(d.name)] = d.id; });
 
         setHierarchyMaps(maps);
       } catch (err) {
@@ -182,16 +233,10 @@ export default function ExcelImport() {
     if (!user?.stateId) return;
     async function loadMasterFields() {
       try {
-        const { data, error } = await supabase
-          .from('dropdown_master_fields')
-          .select('*')
-          .eq('state_id', user.stateId)
-          .eq('is_active', true);
+        const fields = await api.admin.fieldTypes(user.stateId);
         
-        if (error) throw error;
-        
-        const fields = data.filter(f => f.personnel_field_name);
-        setCustomMasterFields(fields.map(f => ({
+        const personnelFields = (fields || []).filter(f => f.personnel_field_name);
+        setCustomMasterFields(personnelFields.map(f => ({
           ...f,
           personnelFieldName: f.personnel_field_name,
           displayName: f.display_name
@@ -313,6 +358,17 @@ export default function ExcelImport() {
       mappedFields.forEach(([fileCol, sysKey]) => {
         const value = String(row[fileCol] || '').trim();
         
+        // Date field conversion — handles DD.MM.YY, DD.MM.YYYY, DD/MM/YYYY etc.
+        if (DATE_FIELDS.includes(sysKey)) {
+          const parsed = parseExcelDate(value);
+          if (value && !parsed) {
+            rowErrors.push(`Row ${rowNum}: Invalid date format "${value}" in field "${sysKey}" (use DD.MM.YYYY)`);
+          } else {
+            mapped[sysKey] = parsed;
+          }
+          return;
+        }
+
         // Hierarchy Mapping Logic
         const hKey = normalizeName(value);
         if (sysKey === 'stateId' && value) {
@@ -396,6 +452,7 @@ export default function ExcelImport() {
     setStep(3);
 
     let successCount = 0;
+    let updatedCount = 0;
     let errorCount = 0;
     const errorRows = [];
     const BATCH_LIMIT = 500;
@@ -438,14 +495,27 @@ export default function ExcelImport() {
       special_course: row.specialCourse || '',
       company: row.company || '',
       
-      state_id: !isSuperAdmin ? (user.stateId || '') : (row.stateId || ''),
-      range_id: (!isSuperAdmin && !isStateAdmin) ? (user.rangeId || '') : (row.rangeId || user.rangeId || ''),
-      district_id: (!isSuperAdmin && !isStateAdmin && !isRangeAdmin) ? (user.districtId || '') : (row.districtId || user.districtId || ''),
-      current_unit_id: (!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) ? (user.unitId || '') : (row.currentUnitId || user.unitId || ''),
-      current_sub_unit_id: row.currentSubUnitId || user.subUnitId || '',
+      // node_id resolution — mirrors PersonnelForm submit logic exactly
+      // Priority: subUnit > unit > district > range > state (most specific wins)
+      node_id: (
+        row.currentSubUnitId ||
+        ((!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin)
+          ? (user.unitId || null)
+          : (row.currentUnitId || user.unitId || null)) ||
+        ((!isSuperAdmin && !isStateAdmin && !isRangeAdmin)
+          ? user.districtId
+          : (row.districtId || user.districtId || null)) ||
+        ((!isSuperAdmin && !isStateAdmin)
+          ? user.rangeId
+          : (row.rangeId || user.rangeId || null)) ||
+        (!isSuperAdmin ? user.stateId : (row.stateId || null)) ||
+        null
+      ),
       
       subject_graduation: row.subjectGraduation || '',
+      graduation_degree: row.graduationDegree || '',
       subject_post_graduation: row.subjectPostGraduation || '',
+      pg_degree: row.pgDegree || '',
       swat_awt_course: row.swatAwtCourse || '',
       r_batch: row.rBatch || '',
       t_duty_order: row.tDutyOrder || '',
@@ -460,12 +530,11 @@ export default function ExcelImport() {
       const chunk = rows.slice(batchStart, batchStart + BATCH_LIMIT).map(mapToPayload);
       
       try {
-        const { error: insertError } = await supabase
-          .from('personnel')
-          .insert(chunk);
-
-        if (insertError) throw insertError;
-        successCount += chunk.length;
+        const results = await Promise.all(chunk.map(c => api.personnel.upsert(c)));
+        results.forEach(r => {
+          if (r?._action === 'updated') updatedCount++;
+          else successCount++;
+        });
       } catch (err) {
         errorCount += chunk.length;
         errorRows.push({ row: batchStart + 1, error: `Batch import failed: ${err.message}` });
@@ -473,9 +542,9 @@ export default function ExcelImport() {
       }
     }
 
-    setImportResults({ successCount, errorCount, errorRows });
+    setImportResults({ successCount, updatedCount, errorCount, errorRows });
     setImporting(false);
-    toast.success(`Import complete: ${successCount} records created.`);
+    toast.success(`Import complete: ${successCount} new, ${updatedCount} updated.`);
   }
 
   function resetImport() {
@@ -721,7 +790,8 @@ export default function ExcelImport() {
                 </div>
                 <h3 style={{ marginBottom: 8 }}>Import Complete!</h3>
                 <p style={{ color: 'var(--gray-500)', marginBottom: 20 }}>
-                  <strong>{importResults.successCount}</strong> records imported successfully.
+                  <strong>{importResults.successCount}</strong> new records created.
+                  {importResults.updatedCount > 0 && <><br /><span style={{ color: 'var(--primary-600)' }}><strong>{importResults.updatedCount}</strong> existing records updated.</span></>}
                   {importResults.errorCount > 0 && <><br /><span style={{ color: 'var(--danger-500)' }}>{importResults.errorCount} records failed.</span></>}
                 </p>
                 <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>

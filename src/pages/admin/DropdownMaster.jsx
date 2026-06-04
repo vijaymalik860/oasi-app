@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import {
   Database, Plus, Edit, Trash2, Check, X, Search,
   ChevronDown, Tag, ToggleLeft, ToggleRight, MoreVertical,
@@ -110,56 +110,14 @@ export default function DropdownMaster() {
   }, [activeTab, user]);
 
   async function loadPersonnelLayout() {
-    if (!user?.stateId) return;
-    try {
-      setLayoutLoading(true);
-      const { data, error } = await supabase
-        .from('personnel_layouts')
-        .select('*')
-        .eq('state_id', user.stateId)
-        .maybeSingle();
-
-      if (data && !error) {
-        const loadedSections = data.sections || DEFAULT_LAYOUT_MAP;
-        
-        // Ensure core fields are present in the layout manager
-        const placedFields = new Set(loadedSections.flatMap(s => s.fields));
-        const dutySection = loadedSections.find(s => s.id === 'duty');
-        if (dutySection) {
-          if (!placedFields.has('psDutyType')) dutySection.fields.push('psDutyType');
-        }
-        setPersonnelLayout(loadedSections);
-      } else {
-        setPersonnelLayout(DEFAULT_LAYOUT_MAP);
-      }
-    } catch (err) {
-      toast.error('Failed to load layout configuration.');
-    } finally {
-      setLayoutLoading(false);
-    }
+    setPersonnelLayout(DEFAULT_LAYOUT_MAP);
+    setLayoutLoading(false);
   }
 
 
 
   async function savePersonnelLayout() {
-    if (!user?.stateId) return;
-    try {
-      setLayoutSaving(true);
-      const { error } = await supabase
-        .from('personnel_layouts')
-        .upsert({
-          state_id: user.stateId,
-          sections: personnelLayout,
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-      toast.success('Personnel layout updated successfully.');
-    } catch (err) {
-      toast.error('Failed to save layout.');
-    } finally {
-      setLayoutSaving(false);
-    }
+    toast.warning('Layout saving is unsupported locally.');
   }
 
   const moveSection = (index, direction) => {
@@ -200,17 +158,9 @@ export default function DropdownMaster() {
     if (!user?.stateId) return;
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('master_field_types')
-        .select('*')
-        .eq('state_id', user.stateId)
-        .order('display_name');
+      const data = await api.admin.fieldTypes(user.stateId);
 
-      if (error) throw error;
-
-      // Map snake_case to camelCase for UI compatibility if needed, 
-      // or update UI to use snake_case. Let's update data to use camelCase internally.
-      const mapped = data.map(d => ({
+      const mapped = (data||[]).map(d => ({
         id: d.id,
         fieldName: d.field_name,
         displayName: d.display_name,
@@ -248,16 +198,12 @@ export default function DropdownMaster() {
 
     try {
       setRecordsLoading(true);
-      const { data, error } = await supabase
-        .from('master_dropdown_values')
-        .select('*')
-        .eq('field_type_id', fieldConfig.id)
-        .eq('state_id', user.stateId)
-        .order('display_order');
+      const data = await api.admin.dropdownValues({ 
+        stateId: user.stateId, 
+        fieldTypeId: fieldConfig.id 
+      });
       
-      if (error) throw error;
-
-      const mapped = data.map(d => ({
+      const mapped = (data||[]).map(d => ({
         id: d.id,
         value: d.value,
         displayOrder: d.display_order,
@@ -330,14 +276,9 @@ export default function DropdownMaster() {
             display_order: maxOrder + i + 1,
             access_level: 'all',
             is_active: true,
-            updated_at: new Date().toISOString()
           }));
 
-          const { error } = await supabase
-            .from('master_dropdown_values')
-            .insert(newEntries);
-
-          if (error) throw error;
+          await Promise.all(newEntries.map(e => api.admin.createValue(e)));
 
           toast.success(`${validTags.length} value(s) added successfully.`);
           setBulkInput('');
@@ -378,17 +319,12 @@ export default function DropdownMaster() {
     }
     try {
       setSaving(true);
-      const { error } = await supabase
-        .from('master_dropdown_values')
-        .update({
-          value: editForm.value.trim(),
-          display_order: parseInt(editForm.displayOrder) || 0,
-          access_level: editForm.accessLevel,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingRecord.id);
+      await api.admin.updateValue(editingRecord.id, {
+        value: editForm.value.trim(),
+        display_order: parseInt(editForm.displayOrder) || 0,
+        access_level: editForm.accessLevel,
+      });
 
-      if (error) throw error;
       toast.success('Record updated.');
       setEditingRecord(null);
       loadRecords();
@@ -408,15 +344,10 @@ export default function DropdownMaster() {
       onConfirm: async () => {
         try {
           setSaving(true);
-          const { error } = await supabase
-            .from('master_dropdown_values')
-            .update({
-              is_active: !record.isActive,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', record.id);
+          await api.admin.updateValue(record.id, {
+            is_active: !record.isActive,
+          });
 
-          if (error) throw error;
           toast.success(`${record.value} ${record.isActive ? 'deactivated' : 'activated'}.`);
           loadRecords();
         } catch (err) {
@@ -438,15 +369,10 @@ export default function DropdownMaster() {
     if (!masterField?.personnelFieldName) return false;
 
     try {
-      const { count, error } = await supabase
-        .from('personnel')
-        .select('*', { count: 'exact', head: true })
-        .eq(masterField.personnelFieldName, value);
-      
-      if (error) throw error;
-      return count > 0;
+      const data = await api.personnel.list();
+      return data.some(p => p[masterField.personnelFieldName] === value);
     } catch (err) {
-      console.error('Usage check failed:', err);
+      if (import.meta.env.DEV) console.error('Usage check failed:', err);
       return true; // Fail safe
     }
   }
@@ -469,12 +395,8 @@ export default function DropdownMaster() {
       onConfirm: async () => {
         try {
           setSaving(true);
-          const { error } = await supabase
-            .from('master_dropdown_values')
-            .delete()
-            .eq('id', record.id);
+          await api.admin.deleteValue(record.id);
 
-          if (error) throw error;
           toast.success('Record deleted.');
           loadRecords();
         } catch (err) {
@@ -521,22 +443,13 @@ export default function DropdownMaster() {
             helper_example: newFieldType.helperExample || 'Value1, Value2, Value3',
             description: newFieldType.description || '',
             is_active: newFieldType.isActive !== false,
-            updated_at: new Date().toISOString()
           };
 
-          let result;
           if (isEdit) {
-            result = await supabase
-              .from('master_field_types')
-              .update(payload)
-              .eq('id', editingFieldType.id);
+            await api.admin.updateField(editingFieldType.id, payload);
           } else {
-            result = await supabase
-              .from('master_field_types')
-              .insert([payload]);
+            await api.admin.createField(payload);
           }
-
-          if (result.error) throw result.error;
 
           toast.success(isEdit ? 'Category updated.' : 'Field type added.');
           setShowFieldTypeModal(false);
@@ -560,15 +473,8 @@ export default function DropdownMaster() {
         onConfirm: async () => {
           try {
             setSaving(true);
-            const { error } = await supabase
-              .from('master_field_types')
-              .update({
-                is_active: nextState,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', field.id);
+            await api.admin.updateField(field.id, { is_active: nextState });
 
-            if (error) throw error;
             toast.success('Category updated.');
             loadFields();
           } catch (err) {
@@ -602,17 +508,8 @@ export default function DropdownMaster() {
   }
 
   async function deleteFieldType(field) {
-    // Check if any dropdown values exist for this type
-    const { count, error } = await supabase
-      .from('master_dropdown_values')
-      .select('*', { count: 'exact', head: true })
-      .eq('field_type_id', field.id)
-      .eq('state_id', user.stateId);
-
-    if (error) {
-      toast.error('Failed to check usage.');
-      return;
-    }
+    const data = await api.admin.dropdownValues({ fieldTypeId: field.id, stateId: user.stateId });
+    const count = (data||[]).length;
 
     if (count > 0) {
       setConfirmModal({
@@ -630,12 +527,7 @@ export default function DropdownMaster() {
       onConfirm: async () => {
         try {
           setSaving(true);
-          const { error: delError } = await supabase
-            .from('master_field_types')
-            .delete()
-            .eq('id', field.id);
-
-          if (delError) throw delError;
+          await api.admin.deleteField(field.id);
 
           toast.success('Tab removed.');
           setActiveTab(masterFields[0]?.fieldName || '');

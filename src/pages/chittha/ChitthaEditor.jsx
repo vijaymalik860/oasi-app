@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Save, ArrowLeft, Plus, Trash2, X, ClipboardList, Search } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 
 const DEFAULT_HEADS = [
   { id: 'head_police', headName: 'Police Official', total: 0, absent: 0, leave: 0, present: 0 },
@@ -74,41 +74,33 @@ export default function ChitthaEditor() {
 
   async function fetchUnits() {
     try {
-      let queryBuilder = supabase.from('units').select('*').eq('assigned_module', 'chittha');
+      const params = { assigned_module: 'chittha' };
 
       if (isUnitAdmin && user?.unitId) {
-        queryBuilder = queryBuilder.eq('id', user.unitId);
+        params.unit_id = user.unitId;
       } else if (isDistrictAdmin && user?.districtId) {
-        queryBuilder = queryBuilder.eq('district_id', user.districtId);
+        params.district_id = user.districtId;
       } else if (isStateAdmin && user?.stateId) {
-        queryBuilder = queryBuilder.eq('state_id', user.stateId);
+        params.state_id = user.stateId;
       }
 
-      const { data, error } = await queryBuilder;
-      if (error) throw error;
+      const data = await api.hierarchy.units(params);
       
-      setUnits(data.map(u => ({
+      setUnits((data||[]).map(u => ({
         id: u.id,
         unitName: u.name,
         ...u
       })));
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     }
   }
 
   async function fetchUnitPersonnel(unitId) {
     try {
-      const { data: personnel, error } = await supabase
-        .from('personnel')
-        .select('*')
-        .eq('current_unit_id', unitId)
-        .eq('service_status', 'Active')
-        .eq('is_deleted', false);
-      
-      if (error) throw error;
+      const personnel = await api.personnel.list({ unit_id: unitId, service_status: 'Active' });
 
-      const mappedPersonnel = personnel.map(p => ({
+      const mappedPersonnel = (personnel||[]).map(p => ({
         id: p.id,
         fullName: p.full_name,
         rank: p.rank,
@@ -124,26 +116,17 @@ export default function ChitthaEditor() {
         s.id === 'sec_unallocated' ? { ...s, officers: officerObjs } : { ...s, officers: [] }
       ));
     } catch (err) {
-      console.error('Failed to fetch unit personnel', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch unit personnel', err);
     }
   }
 
   async function fetchChittha() {
     try {
-      const { data: chitthaData, error: cError } = await supabase
-        .from('chitthas')
-        .select(`
-          *,
-          units:unit_id (name)
-        `)
-        .eq('id', id)
-        .single();
-      
-      if (cError) throw cError;
+      const chitthaData = await api.chitthas.get(id);
 
       setFormData({
         unitId: chitthaData.unit_id,
-        unitName: chitthaData.units?.name || '',
+        unitName: chitthaData.unit_name || '',
         chitthaDate: chitthaData.chittha_date,
         dateLabel: chitthaData.date_label || '',
         status: chitthaData.status,
@@ -151,34 +134,26 @@ export default function ChitthaEditor() {
 
       if (chitthaData.head_summary) setHeadSummary(chitthaData.head_summary);
 
-      // Load assignments
-      const { data: assignments, error: aError } = await supabase
-        .from('chittha_assignments')
-        .select('*')
-        .eq('chittha_id', id);
-      
-      if (aError) throw aError;
-
       // Map back to sections format
       if (chitthaData.section_configs) {
         const reconstructed = chitthaData.section_configs.map(s => ({
           ...s,
-          officers: assignments
+          officers: (chitthaData.assignments || [])
             .filter(a => a.section_name === s.id) // UI uses id as sectionName in NaukariChittha, but here it might be different. Let's check sections.
             .map(a => ({
               personnelId: a.personnel_id,
-              personnelName: a.personnel_name_at_time, // Or fetch from personnel
-              personnelRank: a.personnel_rank_at_time,
-              personnelBelt: a.personnel_belt_at_time,
-              dutyPoint: a.duty_point,
-              remarks: a.remarks,
+              personnelName: a.full_name || a.personnel_name_at_time, // Or fetch from personnel
+              personnelRank: a.rank || a.personnel_rank_at_time,
+              personnelBelt: a.belt_number || a.personnel_belt_at_time,
+              dutyPoint: a.duty_location || a.duty_point,
+              remarks: a.remark_text || a.remarks,
               sectionId: a.section_name
             }))
         }));
         setSections(reconstructed);
       }
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
       toast.error('Failed to load roster');
     } finally {
       setLoading(false);
@@ -339,63 +314,36 @@ export default function ChitthaEditor() {
       let chitthaId = id;
 
       if (!id) {
-        payload.created_at = new Date().toISOString();
         payload.state_id = user?.stateId || null;
         payload.range_id = user?.rangeId || null;
-        payload.created_by_user_id = user?.id || null;
         
-        const { data: newChittha, error: cError } = await supabase
-          .from('chitthas')
-          .insert([payload])
-          .select()
-          .single();
-        
-        if (cError) throw cError;
+        const newChittha = await api.chitthas.create(payload);
         chitthaId = newChittha.id;
-      } else {
-        const { error: cError } = await supabase
-          .from('chitthas')
-          .update(payload)
-          .eq('id', id);
-        
-        if (cError) throw cError;
       }
 
-      // Handle assignments (Delete existing and re-insert for simplicity in editor)
-      if (id) {
-        await supabase.from('chittha_assignments').delete().eq('chittha_id', chitthaId);
-      }
-
+      // Prepare assignments mapping for update
       const assignmentPayload = [];
       for (const section of sections) {
         for (const off of section.officers) {
-          const person = allUnitPersonnel.find(p => p.id === off.personnelId);
           assignmentPayload.push({
-            chittha_id: chitthaId,
             personnel_id: off.personnelId,
             section_name: section.id,
             duty_type: 'General', // Default
             duty_location: off.dutyPoint || '',
             remark_text: off.remarks || '',
-            state_id: person?.state_id || user?.stateId || null,
-            unit_id: formData.unitId,
-            created_at: new Date().toISOString()
+            is_vip_duty: false
           });
         }
       }
 
-      if (assignmentPayload.length > 0) {
-        const { error: aError } = await supabase
-          .from('chittha_assignments')
-          .insert(assignmentPayload);
-        
-        if (aError) throw aError;
-      }
+      payload.assignments = assignmentPayload;
+
+      await api.chitthas.update(chitthaId, payload);
 
       toast.success('Roster saved successfully!');
       navigate('/chitthas');
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
       toast.error('Failed to save roster');
     } finally {
       setSaving(false);

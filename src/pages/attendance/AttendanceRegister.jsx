@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import {
   CalendarCheck, Search, Save, ChevronLeft, ChevronRight, ChevronDown,
   UserCheck, UserX, Clock, Filter
@@ -61,26 +61,11 @@ export default function AttendanceRegister() {
     try {
       setHierarchyLoading(true);
       
-      // Scoping based on role
-      let queryBuilder = supabase.from('units').select('*').eq('assigned_module', 'attendance');
-
-      if (isUnitAdmin && user?.unitId) {
-        queryBuilder = queryBuilder.eq('id', user.unitId);
-      } else if (isDistrictAdmin && user?.districtId) {
-        queryBuilder = queryBuilder.eq('district_id', user.districtId);
-      } else if (isRangeAdmin && user?.rangeId) {
-        queryBuilder = queryBuilder.eq('range_id', user.rangeId);
-      } else if (isStateAdmin && user?.stateId) {
-        queryBuilder = queryBuilder.eq('state_id', user.stateId);
-      } else if (user?.stateId) {
-        queryBuilder = queryBuilder.eq('state_id', user.stateId);
-      }
-
-      const { data: unitData, error: unitError } = await queryBuilder;
-      if (unitError) throw unitError;
-
+      // Fetch all units
+      const unitData = await api.hierarchy.units();
+      
       // Map to UI names
-      const mappedUnits = unitData.map(u => ({ 
+      let mappedUnits = (unitData||[]).map(u => ({ 
         id: u.id, 
         unitName: u.name, 
         unitType: u.unit_type,
@@ -88,7 +73,7 @@ export default function AttendanceRegister() {
         rangeId: u.range_id,
         districtId: u.district_id,
         assignedModule: u.assigned_module
-      }));
+      })).filter(u => u.assignedModule === 'attendance');
       
       mappedUnits.sort((a, b) => (a.unitName || '').localeCompare(b.unitName || ''));
       setUnits(mappedUnits);
@@ -96,16 +81,10 @@ export default function AttendanceRegister() {
       // Fetch all sub-units for these units in one go
       const uIds = mappedUnits.map(u => u.id);
       if (uIds.length > 0) {
-        const { data: subUnitData, error: subError } = await supabase
-          .from('sub_units')
-          .select('*')
-          .eq('assigned_module', 'attendance')
-          .in('unit_id', uIds);
+        const subUnitData = await api.hierarchy.subUnits();
         
-        if (subError) throw subError;
-
         const subUnitsMap = {};
-        subUnitData.forEach(su => {
+        (subUnitData||[]).filter(su => su.assigned_module === 'attendance' && uIds.includes(su.unit_id)).forEach(su => {
           const mappedSU = { 
             id: su.id, 
             subUnitName: su.name, 
@@ -175,15 +154,15 @@ export default function AttendanceRegister() {
       setLoading(true);
       
       // 1. Fetch Active Personnel
-      let pQuery = supabase.from('personnel').select('*').eq('service_status', 'Active').eq('is_deleted', false);
+      let personnelParams = {};
       if (selectedEntity.type === 'subunit') {
-        pQuery = pQuery.eq('current_sub_unit_id', selectedEntity.id);
+        personnelParams.current_sub_unit_id = selectedEntity.id;
       } else {
-        pQuery = pQuery.eq('current_unit_id', selectedEntity.id);
+        personnelParams.current_unit_id = selectedEntity.id;
       }
       
-      const { data: personnelData, error: pError } = await pQuery;
-      if (pError) throw pError;
+      const pData = await api.personnel.list(personnelParams);
+      const personnelData = (pData||[]).filter(p => p.service_status === 'Active' && !p.is_deleted);
 
       const mappedPersonnel = personnelData.map(p => ({
         id: p.id,
@@ -199,18 +178,17 @@ export default function AttendanceRegister() {
       setPersonnel(mappedPersonnel);
 
       // 2. Fetch Attendance for this entity and date
-      let attQuery = supabase.from('attendance_register').select('*').eq('date', selectedDate);
+      let attParams = { date: selectedDate };
       if (selectedEntity.type === 'subunit') {
-        attQuery = attQuery.eq('sub_unit_id', selectedEntity.id);
+        attParams.sub_unit_id = selectedEntity.id;
       } else {
-        attQuery = attQuery.eq('unit_id', selectedEntity.id);
+        attParams.unit_id = selectedEntity.id;
       }
 
-      const { data: attData, error: attError } = await attQuery;
-      if (attError) throw attError;
+      const attData = await api.attendance.get(attParams);
 
       const attMap = {};
-      attData.forEach(d => {
+      (attData||[]).forEach(d => {
         attMap[d.personnel_id] = { 
           id: d.id, 
           personnelId: d.personnel_id,
@@ -328,15 +306,10 @@ export default function AttendanceRegister() {
         updated_at: new Date().toISOString(),
       }));
 
-      const { data, error } = await supabase
-        .from('attendance_register')
-        .insert(payload)
-        .select();
-
-      if (error) throw error;
+      const data = await api.attendance.bulk(payload);
 
       const newAttMap = {};
-      data.forEach(d => {
+      (data||[]).forEach(d => {
         newAttMap[d.personnel_id] = { id: d.id, personnelId: d.personnel_id, attendanceType: d.attendance_type };
       });
 
@@ -352,16 +325,14 @@ export default function AttendanceRegister() {
   async function loadMasterRanks() {
     if (!user?.stateId) return;
     try {
-      const { data, error } = await supabase
-        .from('master_dropdown_values')
-        .select('*, master_field_types!inner(*)')
-        .eq('master_field_types.field_name', 'rank')
-        .eq('state_id', user.stateId)
-        .eq('is_active', true)
-        .order('display_order');
-      
-      if (error) throw error;
-      setMasterRanks(data);
+      const fields = await api.admin.fieldTypes(user.stateId);
+      const rankField = (fields||[]).find(f => f.field_name === 'rank');
+      if (rankField) {
+        const values = await api.admin.dropdownValues({ stateId: user.stateId });
+        const rankValues = (values||[]).filter(v => v.field_type_id === rankField.id);
+        rankValues.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+        setMasterRanks(rankValues);
+      }
     } catch (err) {
       console.error('Failed to load ranks:', err);
     }
@@ -400,18 +371,12 @@ export default function AttendanceRegister() {
         payload.marked_at = new Date().toISOString();
       }
 
-      const { data, error } = await supabase
-        .from('attendance_register')
-        .upsert(payload, { onConflict: 'personnel_id, date' })
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = await api.attendance.mark(payload);
 
       setAttendanceMap(prev => ({
         ...prev,
         [personnelId]: {
-          id: data.id,
+          id: data.id || data[0]?.id,
           personnelId,
           attendanceType,
           ...hourlyDetails,
@@ -449,16 +414,11 @@ export default function AttendanceRegister() {
         updated_at: new Date().toISOString(),
       }));
 
-      const { data, error } = await supabase
-        .from('attendance_register')
-        .upsert(payload, { onConflict: 'personnel_id, date' })
-        .select();
-
-      if (error) throw error;
+      const data = await api.attendance.bulk(payload);
 
       setAttendanceMap(prev => {
         const updated = { ...prev };
-        data.forEach(d => {
+        (data||[]).forEach(d => {
           updated[d.personnel_id] = { id: d.id, personnelId: d.personnel_id, attendanceType: d.attendance_type };
         });
         return updated;
@@ -823,7 +783,8 @@ export default function AttendanceRegister() {
                           <th>Belt No.</th>
                           <th>Name</th>
                           <th>Rank</th>
-                          <th style={{ width: 220 }}>Attendance</th>
+                          <th style={{ width: 180 }}>Attendance</th>
+                          <th style={{ width: 220 }}>Remarks</th>
                           <th style={{ width: 120 }}>Status</th>
                         </tr>
                       </thead>
@@ -858,6 +819,21 @@ export default function AttendanceRegister() {
                                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                                   ))}
                                 </select>
+                              </td>
+                              <td>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  placeholder="Add remark..."
+                                  defaultValue={att?.remarks || ''}
+                                  onBlur={(e) => {
+                                    if(e.target.value !== (att?.remarks || '')) {
+                                      markAttendance(p.id, currentType || 'Present', { remarks: e.target.value });
+                                    }
+                                  }}
+                                  disabled={saving}
+                                  style={{ padding: '4px 8px', fontSize: '0.85rem', height: '32px' }}
+                                />
                               </td>
                               <td>
                                 {currentType ? (

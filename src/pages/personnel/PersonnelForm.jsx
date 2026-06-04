@@ -2,10 +2,35 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { Save, ArrowLeft, Camera, X, Edit } from 'lucide-react';
 import { validateMobile, validateAadhar, validatePAN, validateDateOfBirth, validateDateOrder, maskAadhar, maskPAN } from '../../utils/validators';
 import { useLocation } from 'react-router-dom';
+
+// Extracts yyyy-mm-dd from ISO datetime or date string
+const toDateStr = (val) => {
+  if (!val) return '';
+  const s = String(val);
+  // ISO datetime: "1977-07-23T00:00:00.000Z"
+  if (s.includes('T')) return s.split('T')[0];
+  // Already date: "1977-07-23"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return '';
+};
+
+// Maps raw imported values to dropdown options (case-insensitive)
+const GRAD_OPTIONS  = ['8th or Below', '10th / Matric', '12th / Inter', 'BA', 'BSc', 'BCom', 'BCA', 'BTech / BE', 'BBA', 'Other Graduation'];
+const PG_OPTIONS    = ['MA', 'MSc', 'MCom', 'MCA', 'MTech / ME', 'MBA', 'LLB / LLM', 'PhD', 'Other PG'];
+const normalizeDegree = (val, options) => {
+  if (!val) return '';
+  const up = val.toString().toUpperCase().trim();
+  // Exact match first
+  const exact = options.find(o => o.toUpperCase() === up);
+  if (exact) return exact;
+  // Partial match
+  const partial = options.find(o => up.includes(o.toUpperCase().split(' ')[0]) || o.toUpperCase().includes(up));
+  return partial || val; // return raw value if no match (stored as-is)
+};
 
 const EMPTY_FORM = {
   beltNumber: '', payCode: '', rank: '', fullName: '', fatherName: '',
@@ -17,7 +42,9 @@ const EMPTY_FORM = {
   psDutyType: '', ioStatus: '', ioCategory: '',
   paradeGroup: '', spoTrade: '', promotionType: '', specialCourse: '',
   company: '', remarks: '',
-  subjectGraduation: '', subjectPostGraduation: '', swatAwtCourse: '', rBatch: '', tDutyOrder: '', dateOfPosting: '',
+  graduationDegree: '', subjectGraduation: '',
+  pgDegree: '', subjectPostGraduation: '',
+  swatAwtCourse: '', rBatch: '', tDutyOrder: '', dateOfPosting: '',
   stateId: '', rangeId: '', districtId: '', unitType: '', currentUnitId: '', currentSubUnitId: '',
 };
 
@@ -30,7 +57,7 @@ const DEFAULT_LAYOUT = [
   {
     id: 'education',
     title: '2. Education & Training',
-    fields: [ 'subjectGraduation', 'subjectPostGraduation', 'swatAwtCourse', 'specialCourse', 'promotionType' ]
+    fields: [ 'graduationDegree', 'subjectGraduation', 'pgDegree', 'subjectPostGraduation', 'swatAwtCourse', 'specialCourse', 'promotionType' ]
   },
   {
     id: 'service',
@@ -131,17 +158,14 @@ export default function PersonnelForm() {
 
   async function loadStates() {
     if (!isSuperAdmin) return;
-    const { data, error } = await supabase.from('states').select('*').order('name');
-    if (!error) {
-      setStates(data.map(d => ({ id: d.id, stateName: d.name, ...d })));
-    }
+    const data = await api.hierarchy.states();
+    if (data) setStates((data||[]).map(d => ({ id: d.id, stateName: d.name, ...d })));
   }
 
   async function loadCategories() {
     try {
-      const { data, error } = await supabase.from('unit_categories').select('name').order('name');
-      if (error) throw error;
-      setUnitCategories(data.map(d => d.name));
+      const data = await api.hierarchy.unitCategories();
+      setUnitCategories((data||[]).map(d => d.name || d));
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to load categories:', err);
     }
@@ -154,15 +178,9 @@ export default function PersonnelForm() {
     async function loadMasterConfig() {
       try {
         // 1. Fetch Field Definitions
-        const { data: fields, error: fError } = await supabase
-          .from('master_field_types')
-          .select('*')
-          .eq('state_id', user.stateId)
-          .eq('is_active', true);
+        const fields = await api.admin.fieldTypes(user.stateId);
 
-        if (fError) throw fError;
-
-        const mappedFields = fields.map(f => ({
+        const mappedFields = (fields||[]).map(f => ({
           id: f.id,
           fieldName: f.field_name,
           displayName: f.display_name,
@@ -172,16 +190,9 @@ export default function PersonnelForm() {
         setMasterFields(mappedFields);
 
         // 2. Fetch Dropdown Values
-        const { data: values, error: vError } = await supabase
-          .from('master_dropdown_values')
-          .select('*')
-          .eq('state_id', user.stateId)
-          .eq('is_active', true);
-        
-        if (vError) throw vError;
+        const values = await api.admin.dropdownValues({ stateId: user.stateId });
 
-        const mappedValues = values.map(v => {
-          // Find the fieldName for this value from the fields list we just fetched
+        const mappedValues = (values||[]).map(v => {
           const field = fields.find(f => f.id === v.field_type_id);
           return {
             id: v.id,
@@ -203,19 +214,8 @@ export default function PersonnelForm() {
 
   // Load override layout if exists (M11)
   useEffect(() => {
-    if (!user?.stateId) return;
-    async function loadLayout() {
-      const { data, error } = await supabase
-        .from('personnel_layouts')
-        .select('sections')
-        .eq('state_id', user.stateId)
-        .maybeSingle();
-
-      if (data && !error) {
-        setRawLayout(data.sections || DEFAULT_LAYOUT);
-      }
-    }
-    loadLayout();
+    // personnel_layouts table does not exist in local DB, so fallback to DEFAULT_LAYOUT
+    setRawLayout(DEFAULT_LAYOUT);
   }, [user]);
 
   // Access Level Checker
@@ -256,35 +256,33 @@ export default function PersonnelForm() {
 
   async function loadRanges(stateId) {
     if (!isSuperAdmin && !isStateAdmin) return;
-    const { data, error } = await supabase
-      .from('ranges')
-      .select('*')
-      .eq('state_id', stateId)
-      .order('name');
-    
-    if (!error) {
+    const data = await api.hierarchy.ranges(stateId);
+    if (data) {
       setRanges(data.map(d => ({ id: d.id, rangeName: d.name, ...d })));
     }
   }
 
   useEffect(() => {
-    if (form.rangeId) {
-      loadDistricts(form.rangeId);
+    if (form.rangeId || form.stateId) {
+      loadDistricts();
       if (!isEdit && !isView && isStateAdmin) {
         setForm(prev => ({ ...prev, districtId: '', unitType: '', currentUnitId: '', currentSubUnitId: '' }));
       }
+    } else {
+      setDistricts([]);
     }
-  }, [form.rangeId]);
+  }, [form.rangeId, form.stateId]);
 
-  async function loadDistricts(rangeId) {
+  async function loadDistricts() {
     if (!isSuperAdmin && !isStateAdmin && !isRangeAdmin) return;
-    const { data, error } = await supabase
-      .from('districts')
-      .select('*')
-      .eq('range_id', rangeId)
-      .order('name');
+    const params = {};
+    if (form.rangeId) params.rangeId = form.rangeId;
+    else if (form.stateId) params.stateId = form.stateId;
     
-    if (!error) {
+    if (!params.rangeId && !params.stateId) return;
+
+    const data = await api.hierarchy.districts(params);
+    if (data) {
       setDistricts(data.map(d => ({ id: d.id, districtName: d.name, ...d })));
     }
   }
@@ -305,15 +303,8 @@ export default function PersonnelForm() {
     if (!districtId || !unitType) return;
     if (!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) return;
     try {
-      const { data, error } = await supabase
-        .from('units')
-        .select('*')
-        .eq('district_id', districtId)
-        .eq('unit_type', unitType)
-        .order('name');
-      
-      if (error) throw error;
-      setUnits(data.map(d => ({ id: d.id, unitName: d.name, ...d })));
+      const data = await api.hierarchy.units({ districtId, unitType });
+      setUnits((data||[]).map(d => ({ id: d.id, unitName: d.name, ...d })));
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to load units:', err);
     }
@@ -331,15 +322,8 @@ export default function PersonnelForm() {
   async function loadSubUnits(unitId, districtId) {
     if (!unitId || !districtId) return;
     try {
-      const { data, error } = await supabase
-        .from('sub_units')
-        .select('*')
-        .eq('unit_id', unitId)
-        .eq('district_id', districtId)
-        .order('name');
-      
-      if (error) throw error;
-      setSubUnits(data.map(d => ({ id: d.id, subUnitName: d.name, ...d })));
+      const data = await api.hierarchy.subUnits({ unitId, districtId });
+      setSubUnits((data||[]).map(d => ({ id: d.id, subUnitName: d.name, ...d })));
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to load sub-units:', err);
     }
@@ -348,13 +332,7 @@ export default function PersonnelForm() {
   async function loadPersonnel() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('personnel')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error) throw error;
+      const data = await api.personnel.get(id);
 
       if (data) {
         // Map snake_case from DB to camelCase for form state
@@ -365,16 +343,16 @@ export default function PersonnelForm() {
           fullName: data.full_name,
           fatherName: data.father_name,
           gender: data.gender,
-          dateOfBirth: data.date_of_birth,
+          dateOfBirth:          toDateStr(data.date_of_birth),
           religion: data.religion,
           caste: data.caste,
           category: data.category,
           cadre: data.cadre,
           serviceType: data.service_type,
           serviceBookNumber: data.service_book_number,
-          dateOfEnlistment: data.date_of_enlistment,
-          dateOfLastPromotion: data.date_of_last_promotion,
-          retirementDate: data.retirement_date,
+          dateOfEnlistment:      toDateStr(data.date_of_enlistment),
+          dateOfLastPromotion:   toDateStr(data.date_of_last_promotion),
+          retirementDate:        toDateStr(data.retirement_date),
           village: data.village,
           policeStation: data.police_station,
           homeDistrict: data.home_district,
@@ -393,12 +371,14 @@ export default function PersonnelForm() {
           specialCourse: data.special_course,
           company: data.company,
           remarks: data.remarks,
-          subjectGraduation: data.subject_graduation,
-          subjectPostGraduation: data.subject_post_graduation,
-          swatAwtCourse: data.swat_awt_course,
-          rBatch: data.r_batch,
-          tDutyOrder: data.t_duty_order,
-          dateOfPosting: data.date_of_posting,
+          graduationDegree:       normalizeDegree(data.graduation_degree, GRAD_OPTIONS),
+          subjectGraduation:      data.subject_graduation,
+          pgDegree:               normalizeDegree(data.pg_degree, PG_OPTIONS),
+          subjectPostGraduation:  data.subject_post_graduation,
+          swatAwtCourse:          data.swat_awt_course,
+          rBatch:                 data.r_batch,
+          tDutyOrder:             data.t_duty_order,
+          dateOfPosting:          toDateStr(data.date_of_posting),
           stateId: data.state_id,
           rangeId: data.range_id,
           districtId: data.district_id,
@@ -539,23 +519,7 @@ export default function PersonnelForm() {
     try {
       let photoURL = form.photoURL || '';
 
-      if (photoFile) {
-        const fileExt = photoFile.name.split('.').pop();
-        const fileName = `${payCode}_${Date.now()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('personnel_photos')
-          .upload(fileName, photoFile);
-
-        if (uploadError) throw uploadError;
-
-        const { data: publicUrlData } = supabase.storage
-          .from('personnel_photos')
-          .getPublicUrl(fileName);
-        
-        photoURL = publicUrlData.publicUrl;
-      }
-
-      const payload = {
+      const baseData = {
         belt_number: form.beltNumber,
         pay_code: payCode,
         rank: form.rank,
@@ -590,41 +554,44 @@ export default function PersonnelForm() {
         special_course: form.specialCourse,
         company: form.company,
         remarks: form.remarks,
+        graduation_degree: form.graduationDegree,
         subject_graduation: form.subjectGraduation,
+        pg_degree: form.pgDegree,
         subject_post_graduation: form.subjectPostGraduation,
         swat_awt_course: form.swatAwtCourse,
         r_batch: form.rBatch,
         t_duty_order: form.tDutyOrder,
         date_of_posting: form.dateOfPosting || null,
-        state_id: !isSuperAdmin ? user.stateId : form.stateId,
-        range_id: (!isSuperAdmin && !isStateAdmin) ? user.rangeId : form.rangeId,
-        district_id: (!isSuperAdmin && !isStateAdmin && !isRangeAdmin) ? user.districtId : form.districtId,
-        unit_type: form.unitType,
-        current_unit_id: (!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) ? (user.unitId || null) : (form.currentUnitId || null),
-        current_sub_unit_id: form.currentSubUnitId || null,
+        node_id: form.currentSubUnitId || 
+                 ((!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) ? (user.unitId || null) : (form.currentUnitId || null)) || 
+                 ((!isSuperAdmin && !isStateAdmin && !isRangeAdmin) ? user.districtId : form.districtId) || 
+                 ((!isSuperAdmin && !isStateAdmin) ? user.rangeId : form.rangeId) || 
+                 (!isSuperAdmin ? user.stateId : form.stateId) || null,
         photo_url: photoURL,
         updated_at: new Date().toISOString(),
         updated_by_user_id: user.id,
       };
 
+      const payload = new FormData();
+      Object.entries(baseData).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          payload.append(key, value);
+        }
+      });
+
+      if (photoFile) {
+        payload.append('photo', photoFile);
+      }
+
       if (isEdit) {
-        const { error } = await supabase
-          .from('personnel')
-          .update(payload)
-          .eq('id', id);
-        
-        if (error) throw error;
+        await api.personnel.update(id, payload);
         toast.success('Personnel record updated successfully.');
       } else {
-        payload.is_deleted = false;
-        payload.created_at = new Date().toISOString();
-        payload.created_by_user_id = user.id;
+        payload.append('is_deleted', false);
+        payload.append('created_at', new Date().toISOString());
+        payload.append('created_by_user_id', user.id);
 
-        const { error } = await supabase
-          .from('personnel')
-          .insert([payload]);
-
-        if (error) throw error;
+        await api.personnel.create(payload);
         toast.success('Personnel record created successfully.');
       }
       navigate('/personnel');
@@ -732,11 +699,29 @@ export default function PersonnelForm() {
       case 'aadharNumber': return <div key={fieldId} className="form-group"><label className="form-label">Aadhar Number</label><input className="form-input" name={fieldId} value={isView ? maskAadhar(form[fieldId]) : form[fieldId]} onChange={handleChange} placeholder="XXXX-XXXX-XXXX" disabled={isView} /></div>;
       case 'pan': return <div key={fieldId} className="form-group"><label className="form-label">PAN</label><input className="form-input" name={fieldId} value={isView ? maskPAN(form[fieldId]) : form[fieldId]} onChange={handleChange} disabled={isView} /></div>;
       case 'village': return <div key={fieldId} className="form-group"><label className="form-label">Village / Town</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. Village Name" readOnly={isView} /></div>;
-      case 'policeStation': return <div key={fieldId} className="form-group"><label className="form-label">Police Station</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. PS City" readOnly={isView} /></div>;
+      case 'policeStation': return <div key={fieldId} className="form-group"><label className="form-label">Police Station (Home / Native)</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. PS Sadar RTK" readOnly={isView} /></div>;
       case 'homeDistrict': return <div key={fieldId} className="form-group"><label className="form-label">Home District (Origin)</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. Hisar" readOnly={isView} /></div>;
       
-      case 'subjectGraduation': return <div key={fieldId} className="form-group"><label className="form-label">Subject (Graduation)</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. Physics" readOnly={isView} /><small style={{ color: 'var(--gray-500)', fontSize: '0.75rem' }}>Comma separated</small></div>;
-      case 'subjectPostGraduation': return <div key={fieldId} className="form-group"><label className="form-label">Subject (Post Graduation)</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. IT" readOnly={isView} /><small style={{ color: 'var(--gray-500)', fontSize: '0.75rem' }}>Comma separated</small></div>;
+      case 'graduationDegree': return (
+        <div key={fieldId} className="form-group">
+          <label className="form-label">Graduation Degree or Below</label>
+          <select className="form-select" name={fieldId} value={form[fieldId]} onChange={handleChange} disabled={isView}>
+            <option value="">Select</option>
+            {['8th or Below', '10th / Matric', '12th / Inter', 'BA', 'BSc', 'BCom', 'BCA', 'BTech / BE', 'BBA', 'Other Graduation'].map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+      );
+      case 'subjectGraduation': return <div key={fieldId} className="form-group"><label className="form-label">Subject (Graduation)</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. Physics, Hindi" readOnly={isView} /><small style={{ color: 'var(--gray-500)', fontSize: '0.75rem' }}>Comma separated</small></div>;
+      case 'pgDegree': return (
+        <div key={fieldId} className="form-group">
+          <label className="form-label">Post Graduation Degree or Above</label>
+          <select className="form-select" name={fieldId} value={form[fieldId]} onChange={handleChange} disabled={isView}>
+            <option value="">Select</option>
+            {['MA', 'MSc', 'MCom', 'MCA', 'MTech / ME', 'MBA', 'LLB / LLM', 'PhD', 'Other PG'].map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+      );
+      case 'subjectPostGraduation': return <div key={fieldId} className="form-group"><label className="form-label">Subject (Post Graduation)</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} placeholder="e.g. Economics, IT" readOnly={isView} /><small style={{ color: 'var(--gray-500)', fontSize: '0.75rem' }}>Comma separated</small></div>;
       case 'swatAwtCourse': return <div key={fieldId} className="form-group"><label className="form-label">SWAT/AWT Course</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} readOnly={isView} /></div>;
       case 'specialCourse': return <div key={fieldId} className="form-group"><label className="form-label">Special Course</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} readOnly={isView} /></div>;
       case 'promotionType': return <div key={fieldId} className="form-group"><label className="form-label">Promotion Type</label><input className="form-input" name={fieldId} value={form[fieldId]} onChange={handleChange} readOnly={isView} /></div>;
@@ -754,46 +739,66 @@ export default function PersonnelForm() {
       case 'stateId': return (
         <div key={fieldId} className="form-group">
           <label className="form-label">State</label>
-          <select className="form-select" name="stateId" value={form.stateId} onChange={handleChange} disabled={!isSuperAdmin || isView}>
-            <option value="">Select State</option>
-            {states.map(s => <option key={s.id} value={s.id}>{s.stateName}</option>)}
-          </select>
+          {!isSuperAdmin ? (
+            <input className="form-input" disabled value={user?.stateName || ''} title="Auto-filled from your hierarchy" />
+          ) : (
+            <select className="form-select" name="stateId" value={form.stateId} onChange={handleChange} disabled={isView}>
+              <option value="">Select State</option>
+              {states.map(s => <option key={s.id} value={s.id}>{s.stateName}</option>)}
+            </select>
+          )}
         </div>
       );
       case 'rangeId': return (
         <div key={fieldId} className="form-group">
           <label className="form-label">Range</label>
-          <select className="form-select" name="rangeId" value={form.rangeId} onChange={handleChange} disabled={(!isSuperAdmin && !isStateAdmin) || isView}>
-            <option value="">Select Range</option>
-            {ranges.map(r => <option key={r.id} value={r.id}>{r.rangeName}</option>)}
-          </select>
+          {(!isSuperAdmin && !isStateAdmin) ? (
+            <input className="form-input" disabled value={user?.rangeName || ''} title="Auto-filled from your hierarchy" />
+          ) : (
+            <select className="form-select" name="rangeId" value={form.rangeId} onChange={handleChange} disabled={isView || !form.stateId}>
+              <option value="">Select Range</option>
+              {ranges.map(r => <option key={r.id} value={r.id}>{r.rangeName}</option>)}
+            </select>
+          )}
         </div>
       );
       case 'districtId': return (
         <div key={fieldId} className="form-group">
           <label className="form-label">District</label>
-          <select className="form-select" name="districtId" value={form.districtId} onChange={handleChange} disabled={(!isSuperAdmin && !isStateAdmin && !isRangeAdmin) || isView}>
-            <option value="">Select District</option>
-            {districts.map(d => <option key={d.id} value={d.id}>{d.districtName}</option>)}
-          </select>
+          {(!isSuperAdmin && !isStateAdmin && !isRangeAdmin) ? (
+            <input className="form-input" disabled value={user?.districtName || ''} title="Auto-filled from your hierarchy" />
+          ) : (
+            <select className="form-select" name="districtId" value={form.districtId} onChange={handleChange} disabled={isView || (!form.rangeId && !form.stateId)}>
+              <option value="">Select District</option>
+              {districts.map(d => <option key={d.id} value={d.id}>{d.districtName}</option>)}
+            </select>
+          )}
         </div>
       );
       case 'unitType': return (
         <div key={fieldId} className="form-group">
           <label className="form-label">Unit Category</label>
-          <select className="form-select" name="unitType" value={form.unitType} onChange={handleChange} disabled={isView}>
-            <option value="">Select Category</option>
-            {unitCategories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          {(!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) ? (
+             <input className="form-input" disabled value={form.unitType || 'Fixed Category'} title="Auto-filled from your hierarchy" />
+          ) : (
+            <select className="form-select" name="unitType" value={form.unitType} onChange={handleChange} disabled={isView || !form.districtId}>
+              <option value="">Select Category</option>
+              {unitCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
         </div>
       );
       case 'currentUnitId': return (
         <div key={fieldId} className="form-group">
           <label className="form-label">Unit</label>
-          <select className="form-select" name="currentUnitId" value={form.currentUnitId} onChange={handleChange} disabled={(!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) || isView}>
-            <option value="">{units.length === 0 ? 'No units found' : 'Select Unit'}</option>
-            {units.map(u => <option key={u.id} value={u.id}>{u.unitName}</option>)}
-          </select>
+          {(!isSuperAdmin && !isStateAdmin && !isRangeAdmin && !isDistrictAdmin) ? (
+            <input className="form-input" disabled value={user?.unitName || ''} title="Auto-filled from your hierarchy" />
+          ) : (
+            <select className="form-select" name="currentUnitId" value={form.currentUnitId} onChange={handleChange} disabled={isView || !form.districtId || !form.unitType}>
+              <option value="">{units.length === 0 && form.unitType ? 'No units found' : 'Select Unit'}</option>
+              {units.map(u => <option key={u.id} value={u.id}>{u.unitName}</option>)}
+            </select>
+          )}
         </div>
       );
       case 'currentSubUnitId': return (
@@ -884,3 +889,4 @@ export default function PersonnelForm() {
     </div>
   );
 }
+

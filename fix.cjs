@@ -1,0 +1,16 @@
+const fs = require('fs');
+let file = fs.readFileSync('d:/oasi-app/src/pages/alerts/GrievanceList.jsx', 'utf8');
+file = file.replace(/â€”/g, '—');
+file = file.replace(/ðŸ“ž/g, '📞');
+file = file.replace(/ðŸ“ /g, '📍');
+file = file.replace(/ðŸ“„/g, '📄');
+file = file.replace(/ðŸ“Š/g, '📊');
+file = file.replace(/ðŸ” /g, '🔍');
+file = file.replace(/â¬‡ï¸ /g, '⬇️');
+file = file.replace(/â†’/g, '→');
+file = file.replace(/â¬†ï¸ /g, '⬆️');
+file = file.replace(/ðŸ”„/g, '🔄');
+file = file.replace(/âœ…/g, '✅');
+file = file.replace(/â”€/g, '─');
+fs.writeFileSync('d:/oasi-app/src/pages/alerts/GrievanceList.jsx', file, 'utf8');
+console.log('Fixed');

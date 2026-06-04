@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { useNavigate } from 'react-router-dom';
 import { Send, UploadCloud, ArrowLeft, Calendar } from 'lucide-react';
 
@@ -39,32 +39,17 @@ export default function LeaveApply() {
 
   async function loadPersonnel() {
     try {
-      const { data, error } = await supabase
-        .from('personnel')
-        .select('*')
-        .eq('current_unit_id', user.unitId || '')
-        .eq('service_status', 'Active')
-        .eq('is_deleted', false);
-      
-      if (error) throw error;
-
-      setPersonnel(data.map(p => ({
-        id: p.id,
-        fullName: p.full_name,
-        rank: p.rank,
-        beltNumber: p.belt_number,
-        stateId: p.state_id,
-        rangeId: p.range_id,
-        districtId: p.district_id,
-        currentUnitId: p.current_unit_id,
-        currentSubUnitId: p.current_sub_unit_id
-      })));
+      const data = await api.personnel.list();
+      setPersonnel((data||[]).filter(p => p.service_status === 'Active' && !p.is_deleted)
+        .map(p => ({
+          id: p.id, fullName: p.full_name, rank: p.rank,
+          beltNumber: p.belt_number, stateId: p.state_id,
+          rangeId: p.range_id, districtId: p.district_id,
+          currentUnitId: p.current_unit_id, currentSubUnitId: p.current_sub_unit_id
+        })));
     } catch (err) {
-      console.error('Load personnel error:', err);
       toast.error('Failed to load personnel list.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   function handleInputChange(e) {
@@ -82,71 +67,28 @@ export default function LeaveApply() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    
     if (!formData.personnelId || !formData.leaveType || !formData.startDate || !formData.endDate) {
-      toast.warning('Please fill all required fields.');
-      return;
+      toast.warning('Please fill all required fields.'); return;
     }
-
     if (new Date(formData.endDate) < new Date(formData.startDate)) {
-      toast.warning('End date cannot be before start date.');
-      return;
+      toast.warning('End date cannot be before start date.'); return;
     }
-
     setSubmitting(true);
     try {
       const selectedPerson = personnel.find(p => p.id === formData.personnelId);
-      const totalDays = calculateDays();
-      
-      let documentUrl = '';
-      if (documentFile) {
-        const fileExt = documentFile.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`;
-        const filePath = `leave_docs/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('personnel-docs')
-          .upload(filePath, documentFile);
-
-        if (uploadError) throw uploadError;
-
-        const { data: publicUrlData } = supabase.storage
-          .from('personnel-docs')
-          .getPublicUrl(filePath);
-        
-        documentUrl = publicUrlData.publicUrl;
-      }
-
-      const payload = {
+      await api.leaves.apply({
         personnel_id: selectedPerson.id,
-        state_id: selectedPerson.stateId || '',
-        range_id: selectedPerson.rangeId || '',
-        district_id: selectedPerson.districtId || '',
-        unit_id: selectedPerson.currentUnitId || '',
-        sub_unit_id: selectedPerson.currentSubUnitId || '',
-        
         leave_type: formData.leaveType,
         start_date: formData.startDate,
         end_date: formData.endDate,
-        total_days: totalDays,
         reason: formData.reason,
-        status: 'Applied',
-        remarks: documentUrl ? `Supporting doc: ${documentUrl}` : '',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase.from('leaves').insert([payload]);
-      if (error) throw error;
-
+        node_id: null,
+      });
       toast.success('Leave application submitted successfully.');
       navigate('/leave');
     } catch (err) {
-      console.error('Leave submit error:', err);
       toast.error('Failed to submit leave application.');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   }
 
   if (loading) {

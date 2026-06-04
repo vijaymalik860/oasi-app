@@ -9,6 +9,7 @@ import PersonnelForm from './pages/personnel/PersonnelForm';
 import ExcelImport from './pages/personnel/ExcelImport';
 import UnitSetup from './pages/admin/UnitSetup';
 import DropdownMaster from './pages/admin/DropdownMaster';
+import UserManagement from './pages/admin/UserManagement';
 import AttendanceRegister from './pages/attendance/AttendanceRegister';
 import ChitthaList from './pages/chittha/ChitthaList';
 import ChitthaEditor from './pages/chittha/ChitthaEditor';
@@ -97,6 +98,7 @@ export default function App() {
               <Route path="/grievances/new" element={<GrievanceApply />} />
 
               {/* Phase 5+ placeholders */}
+              <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
               <Route path="/admin/roles" element={<ComingSoon title="Role Management" />} />
               <Route path="/admin/settings" element={<ComingSoon title="Settings" />} />
             </Route>

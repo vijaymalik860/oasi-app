@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Building2, ClipboardList,
   CalendarCheck, FileText, LogOut, Menu, X,
   Bell, UserCircle, Upload, Settings, ChevronRight,
-  Shield, Clock, ArrowRightLeft, MessageSquare, AlertCircle, Database
+  Shield, Clock, ArrowRightLeft, MessageSquare, AlertCircle, Database, UserCog
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -38,6 +38,7 @@ const NAV_ITEMS = [
     section: 'Admin',
     items: [
       { to: '/grievances', label: 'Grievances', icon: MessageSquare, roles: ['state_admin', 'district_admin', 'unit_admin', 'staff', 'super_admin'] },
+      { to: '/admin/users', label: 'User Management', icon: UserCog, roles: ['state_admin', 'super_admin'] },
       { to: '/admin/roles', label: 'Role Management', icon: Shield, roles: ['state_admin', 'super_admin'] },
       { to: '/admin/settings', label: 'Settings', icon: Settings, roles: ['state_admin', 'super_admin'] },
     ],
@@ -79,8 +80,7 @@ export default function AppLayout() {
             <span>Haryana Police</span>
           </div>
           <button
-            className="btn-ghost"
-            style={{ marginLeft: 'auto', display: 'none', color: '#fff' }}
+            className="sidebar-close-btn"
             onClick={() => setSidebarOpen(false)}
           >
             <X size={20} />

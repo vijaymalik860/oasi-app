@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import {
   FileText, Plus, Search, Filter, CheckCircle, XCircle,
   Clock, Calendar, User, ArrowRight
@@ -32,37 +32,12 @@ export default function LeaveRegister() {
   async function loadLeaves() {
     try {
       setLoading(true);
-      
-      let queryBuilder = supabase
-        .from('leaves')
-        .select(`
-          *,
-          personnel:personnel_id (
-            full_name,
-            rank,
-            belt_number
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(100);
-
-      // Role-based filtering
-      if (isUnitAdmin && user.unitId) {
-        queryBuilder = queryBuilder.eq('unit_id', user.unitId);
-      } else if (isDistrictAdmin && user.districtId) {
-        queryBuilder = queryBuilder.eq('district_id', user.districtId);
-      } else if (isRangeAdmin && user.rangeId) {
-        queryBuilder = queryBuilder.eq('range_id', user.rangeId);
-      }
-
-      const { data, error } = await queryBuilder;
-      if (error) throw error;
-
-      setLeaves(data.map(l => ({
+      const data = await api.leaves.list();
+      setLeaves((data||[]).map(l => ({
         id: l.id,
-        personnelName: l.personnel?.full_name || 'Unknown',
-        beltNumber: l.personnel?.belt_number || '—',
-        rank: l.personnel?.rank || '—',
+        personnelName: l.full_name || 'Unknown',
+        beltNumber: l.belt_number || '—',
+        rank: l.rank || '—',
         leaveType: l.leave_type,
         startDate: l.start_date,
         endDate: l.end_date,
@@ -97,35 +72,18 @@ export default function LeaveRegister() {
   }, [leaves, searchTerm, statusFilter]);
 
   async function updateLeaveStatus(leave, newStatus) {
-    // Permission check: only admins in the same hierarchy can approve/reject
     const canApprove =
       (isUnitAdmin && user.unitId && leave.unitId === user.unitId) ||
       (isDistrictAdmin && user.districtId && leave.districtId === user.districtId) ||
       (isRangeAdmin && user.rangeId && leave.rangeId === user.rangeId) ||
       isSuperAdmin || isStateAdmin;
-
-    if (!canApprove) {
-      toast.error('You do not have permission to approve/reject this leave.');
-      return;
-    }
-
+    if (!canApprove) { toast.error('Permission denied.'); return; }
     try {
-      const { error } = await supabase
-        .from('leaves')
-        .update({
-          status: newStatus,
-          updated_at: new Date().toISOString(),
-          approved_by_user_id: user.id || null,
-          approval_date: new Date().toISOString(),
-        })
-        .eq('id', leave.id);
-      
-      if (error) throw error;
-
+      if (newStatus === 'Approved') await api.leaves.approve(leave.id);
+      else await api.leaves.reject(leave.id);
       setLeaves(prev => prev.map(l => l.id === leave.id ? { ...l, status: newStatus } : l));
       toast.success(`Leave ${newStatus.toLowerCase()} successfully.`);
     } catch (err) {
-      if (import.meta.env.DEV) console.error('Update leave error:', err);
       toast.error('Failed to update leave status.');
     }
   }

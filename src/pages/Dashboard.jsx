@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../supabase';
+import { api } from '../api/client';
 import { Users, UserCheck, UserX, Building2, ClipboardList, AlertTriangle, TrendingUp, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../contexts/ToastContext';
@@ -36,16 +36,13 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
-
     loadDashboardData();
+    fetchHierarchy();
+  }, [user, isSuperAdmin, isStateAdmin, isRangeAdmin, isDistrictAdmin, isUnitAdmin]);
 
-    // Real-time hierarchy stats (Ranges)
-    const fetchHierarchy = async () => {
-      const { data, error } = await supabase
-        .from('ranges')
-        .select('name')
-        .eq('state_id', user.stateId || 'haryana');
-      
+  async function fetchHierarchy() {
+    try {
+      const data = await api.hierarchy.ranges(user.stateId);
       if (data) {
         const counts = { ranges: 0, commissionerates: 0, others: 0 };
         data.forEach(row => {
@@ -56,115 +53,57 @@ export default function Dashboard() {
         });
         setHierarchyStats(counts);
       }
-    };
-
-    fetchHierarchy();
-
-    // Real-time subscription for ranges
-    const rangeSub = supabase
-      .channel('public:ranges')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ranges' }, fetchHierarchy)
-      .subscribe();
-
-    // Real-time district listener for Super Admin
-    let distSub;
-    if (user.role === 'super_admin') {
-      const fetchDistricts = async () => {
-        const { data } = await supabase.from('districts').select('*').order('name');
-        if (data) setAllDistricts(data.map(d => ({ id: d.id, districtName: d.name, ...d })));
-      };
-      
-      fetchDistricts();
-      
-      distSub = supabase
-        .channel('public:districts')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'districts' }, fetchDistricts)
-        .subscribe();
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('Hierarchy fetch error:', err);
     }
-
-    return () => {
-      supabase.removeChannel(rangeSub);
-      if (distSub) supabase.removeChannel(distSub);
-    };
-  }, [user, isSuperAdmin, isStateAdmin, isRangeAdmin, isDistrictAdmin, isUnitAdmin]);
+  }
 
   async function loadDashboardData() {
     try {
       setLoading(true);
+      const today = new Date().toISOString().split('T')[0];
 
-      // 1. Total Personnel Stats
-      let pQuery = supabase.from('personnel').select('*', { count: 'exact', head: false }).eq('service_status', 'Active').eq('is_deleted', false);
-
-      if (isUnitAdmin && user.unitId) {
-        pQuery = pQuery.eq('current_unit_id', user.unitId);
-      } else if (isDistrictAdmin && user.districtId) {
-        pQuery = pQuery.eq('district_id', user.districtId);
-      } else if (isRangeAdmin && user.rangeId) {
-        pQuery = pQuery.eq('range_id', user.rangeId);
-      }
-
-      const { count: totalPersonnel, data: personnelData, error: pError } = await pQuery.order('created_at', { ascending: false }).limit(10);
-      if (pError) throw pError;
-
-      setRecentPersonnel((personnelData || []).map(p => ({
+      // 1. Personnel list
+      const personnelData = await api.personnel.list();
+      const active = (personnelData || []).filter(p => p.service_status === 'Active' && !p.is_deleted);
+      setRecentPersonnel(active.slice(0, 10).map(p => ({
         id: p.id,
         fullName: p.full_name,
         beltNumber: p.belt_number,
         rank: p.rank,
         mobileNumber: p.mobile_number,
-        serviceStatus: p.service_status
+        serviceStatus: p.service_status,
       })));
 
-      // 2. Today's Attendance
-      const today = new Date().toISOString().split('T')[0];
-      let aQuery = supabase.from('attendance_register').select('*', { count: 'exact', head: false }).eq('date', today);
-      
-      if (isUnitAdmin && user.unitId) {
-        aQuery = aQuery.eq('unit_id', user.unitId);
-      } else if (isDistrictAdmin && user.districtId) {
-        aQuery = aQuery.eq('district_id', user.districtId);
-      } else if (isRangeAdmin && user.rangeId) {
-        aQuery = aQuery.eq('range_id', user.rangeId);
-      }
-
-      // Filter for Present types
-      const { data: attData, error: aError } = await aQuery.in('attendance_type', ['Present', 'Duty Outside']);
-      if (aError) throw aError;
-      
-      const presentToday = attData.length;
+      // 2. Attendance stats
+      const attData = await api.attendance.get({ date: today });
+      const presentToday = (attData || []).filter(a =>
+        ['Present', 'Duty Outside'].includes(a.attendance_type)
+      ).length;
 
       setStats({
-        totalPersonnel: totalPersonnel || 0,
+        totalPersonnel: active.length,
         presentToday,
-        absentToday: (totalPersonnel || 0) - presentToday,
+        absentToday: active.length - presentToday,
         activeChitthas: 0,
         pendingAlerts: 0,
       });
 
-      // 3. Super Admin specific data points
+      // 3. Super Admin — load states
       if (isSuperAdmin) {
-        // Load States
-        const { data: states, error: sError } = await supabase.from('states').select('*').order('name');
-        if (sError) throw sError;
-        setStatesList(states.map(s => ({ id: s.id, stateName: s.name })));
-
-        // Load State Admins
-        const { data: admins, error: uError } = await supabase
-          .from('app_users') // Assuming app_users table
-          .select('*')
-          .eq('role', 'state_admin')
-          .eq('is_active', true);
-        
-        if (!uError) {
-          setStateAdmins(admins.map(a => ({
-            id: a.id,
-            beltNumber: a.belt_number,
-            name: a.full_name,
-            stateId: a.state_id
-          })));
-        }
+        const states = await api.hierarchy.states();
+        setStatesList((states || []).map(s => ({ id: s.id, stateName: s.name })));
+        const users = await api.admin.users();
+        setStateAdmins((users || []).filter(u => u.role_name === 'state_admin' && u.is_active)
+          .map(a => ({ id: a.id, beltNumber: a.belt_number, name: a.name, stateId: a.state_id })));
       }
-      
+
+      // 4. Districts for super admin
+      if (isSuperAdmin) {
+        const distData = await api.hierarchy.districts();
+        setAllDistricts((distData || []).map(d => ({ id: d.id, districtName: d.name, ...d })));
+      }
+
     } catch (err) {
       if (import.meta.env.DEV) console.error('Dashboard load error:', err);
     } finally {
@@ -184,31 +123,7 @@ export default function Dashboard() {
           </span>
         </div>
         <div className="page-header-actions">
-          {import.meta.env.DEV && isSuperAdmin && (
-            <button 
-              className="btn btn-secondary" 
-              style={{ color: 'var(--danger-500)', borderColor: 'var(--danger-200)' }}
-              disabled={resetting}
-              onClick={async () => {
-                if (!window.confirm('EXTREME DANGER: This will delete ALL personnel, attendance, and leave records. Administrative hierarchy will be preserved. Proceed?')) return;
-                setResetting(true);
-                try {
-                  const { purgeAllPersonnelData } = await import('../scripts/seedData.js');
-                  await purgeAllPersonnelData();
-                  toast.success('All personnel and records cleared successfully!');
-                  loadDashboardData(); // Refresh stats
-                } catch (err) {
-                  if (import.meta.env.DEV) console.error('Purge error:', err);
-                  toast.error('Purge failed: ' + err.message);
-                } finally {
-                  setResetting(false);
-                }
-              }}
-            >
-              {resetting ? <span className="spinner spinner-sm"></span> : <Trash2 size={16} />} 
-              Reset Personnel Data
-            </button>
-          )}
+
         </div>
       </div>
 

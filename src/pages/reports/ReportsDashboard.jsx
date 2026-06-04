@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { useNavigate } from 'react-router-dom';
-import { FileText, FileDown, Plus, Search, Filter, BarChart3 } from 'lucide-react';
+import { FileText, FileDown, Plus, Search, Filter, BarChart3, Clock } from 'lucide-react';
 
 // For Exporting
 import * as XLSX from 'xlsx';
@@ -33,24 +33,19 @@ export default function ReportsDashboard() {
     try {
       setLoading(true);
       
-      let queryBuilder = supabase
-        .from('fir_reports')
-        .select('*')
-        .order('created_at', { ascending: false });
-
+      const params = {};
       // Role-based filtering
       if (isUnitAdmin && user.unitId) {
-        queryBuilder = queryBuilder.eq('unit_id', user.unitId);
+        params.unit_id = user.unitId;
       } else if (isDistrictAdmin && user.districtId) {
-        queryBuilder = queryBuilder.eq('district_id', user.districtId);
+        params.district_id = user.districtId;
       } else if (isRangeAdmin && user.rangeId) {
-        queryBuilder = queryBuilder.eq('range_id', user.rangeId);
+        params.range_id = user.rangeId;
       }
 
-      const { data, error } = await queryBuilder;
-      if (error) throw error;
+      const data = await api.reports.firList(params);
 
-      setReports(data.map(r => ({
+      setReports((data||[]).map(r => ({
         id: r.id,
         year: r.year,
         quarter: r.quarter,
@@ -64,7 +59,7 @@ export default function ReportsDashboard() {
         ...r
       })));
     } catch (err) {
-      console.error('Load reports error:', err);
+      if (import.meta.env.DEV) console.error('Load reports error:', err);
       toast.error('Failed to load FIR reports.');
     } finally {
       setLoading(false);

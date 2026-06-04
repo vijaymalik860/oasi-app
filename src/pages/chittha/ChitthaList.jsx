@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Search, ClipboardList, Trash2, Edit2, Eye, Copy, ChevronRight, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 
 export default function ChitthaList() {
   const { user, isDistrictAdmin, isStateAdmin } = useAuth();
@@ -23,32 +23,13 @@ export default function ChitthaList() {
   async function fetchChitthas() {
     try {
       setLoading(true);
-      
-      let queryBuilder = supabase
-        .from('chitthas')
-        .select(`
-          *,
-          units:unit_id (name)
-        `)
-        .order('chittha_date', { ascending: false });
-
-      if (!isStateAdmin) {
-        if (user.unitId) {
-          queryBuilder = queryBuilder.eq('unit_id', user.unitId);
-        } else if (isDistrictAdmin && user.districtId) {
-          queryBuilder = queryBuilder.eq('district_id', user.districtId);
-        }
-      }
-
-      const { data, error } = await queryBuilder;
-      if (error) throw error;
-
-      setChitthas(data.map(c => ({
+      const data = await api.chitthas.list();
+      setChitthas((data || []).map(c => ({
         id: c.id,
         ...c,
-        chitthaDate: c.chittha_date, // Map snake_case to camelCase used in UI
-        unitName: c.units?.name || 'Unknown Unit',
-        sectionCount: 12 // Default/Placeholder as in original
+        chitthaDate: c.chittha_date,
+        unitName: c.unit_name || 'Unknown Unit',
+        sectionCount: 12
       })));
     } catch (err) {
       console.error(err);
@@ -79,6 +60,20 @@ export default function ChitthaList() {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
+
+  async function handleDelete(id) {
+    if (!window.confirm('Are you sure you want to delete this duty roster?')) return;
+    try {
+      setLoading(true);
+      await api.chitthas.remove(id);
+      toast.success('Roster deleted successfully');
+      fetchChitthas();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete roster');
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="chittha-list-page">
@@ -151,7 +146,7 @@ export default function ChitthaList() {
                       <button className="btn-icon-text" onClick={() => navigate(`/chitthas/${chittha.id}`)} title="View"><Eye size={16} /> View</button>
                       <button className="btn-icon-text" onClick={() => navigate(`/chitthas/edit/${chittha.id}`)} title="Edit"><Edit2 size={16} /> Edit</button>
                       <button className="btn-icon-text" onClick={() => { setSelectedForCopy(chittha); setShowCopyModal(true); }} title="Copy"><Copy size={16} /> Copy</button>
-                      <button className="btn-icon-text delete" title="Delete"><Trash2 size={16} /></button>
+                      <button className="btn-icon-text delete" onClick={() => handleDelete(chittha.id)} title="Delete"><Trash2 size={16} /></button>
                     </div>
 
                     {/* Mobile action grid */}
@@ -159,7 +154,7 @@ export default function ChitthaList() {
                       <button onClick={() => navigate(`/chitthas/${chittha.id}`)}><Eye size={18} /> View</button>
                       <button onClick={() => navigate(`/chitthas/edit/${chittha.id}`)}><Edit2 size={18} /> Edit</button>
                       <button onClick={() => { setSelectedForCopy(chittha); setShowCopyModal(true); }}><Copy size={18} /> Copy</button>
-                      <button className="delete"><Trash2 size={18} /> Delete</button>
+                      <button className="delete" onClick={() => handleDelete(chittha.id)}><Trash2 size={18} /> Delete</button>
                     </div>
                   </div>
                 ))}

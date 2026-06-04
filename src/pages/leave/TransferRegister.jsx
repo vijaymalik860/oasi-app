@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import {
   RefreshCw, Plus, Search, CheckCircle, XCircle,
   Clock, MapPin, ArrowRight
@@ -32,45 +32,14 @@ export default function TransferRegister() {
   async function loadTransfers() {
     try {
       setLoading(true);
-      
-      let queryBuilder = supabase
-        .from('transfers')
-        .select(`
-          *,
-          personnel:personnel_id (
-            full_name,
-            rank,
-            belt_number
-          ),
-          from_unit:from_unit_id (
-            name
-          ),
-          to_unit:to_unit_id (
-            name
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      // Role-based filtering
-      if (isUnitAdmin && user.unitId) {
-        // Source OR Destination is current unit
-        queryBuilder = queryBuilder.or(`from_unit_id.eq.${user.unitId},to_unit_id.eq.${user.unitId}`);
-      } else if (isDistrictAdmin && user.districtId) {
-        queryBuilder = queryBuilder.eq('district_id', user.districtId);
-      } else if (isRangeAdmin && user.rangeId) {
-        queryBuilder = queryBuilder.eq('range_id', user.rangeId);
-      }
-
-      const { data, error } = await queryBuilder;
-      if (error) throw error;
-
-      setTransfers(data.map(t => ({
+      const data = await api.transfers.list();
+      setTransfers((data||[]).map(t => ({
         id: t.id,
-        personnelName: t.personnel?.full_name || 'Unknown',
-        beltNumber: t.personnel?.belt_number || '—',
-        rank: t.personnel?.rank || '—',
-        fromUnitName: t.from_unit?.name || 'Unknown',
-        toUnitName: t.to_unit?.name || 'Unknown',
+        personnelName: t.full_name || 'Unknown',
+        beltNumber: t.belt_number || '—',
+        rank: t.rank || '—',
+        fromUnitName: t.from_unit_name || 'Unknown',
+        toUnitName: t.to_unit_name || 'Unknown',
         orderNumber: t.order_number,
         transferDate: t.order_date,
         status: t.status === 'Ordered' ? 'Pending' : (t.status === 'Joined' ? 'Transferred' : t.status),
@@ -78,11 +47,9 @@ export default function TransferRegister() {
         ...t
       })));
     } catch (err) {
-      console.error('Load transfers error:', err);
+      if (import.meta.env.DEV) console.error('Load transfers error:', err);
       toast.error('Failed to load transfers.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   const filteredTransfers = useMemo(() => {
@@ -104,34 +71,19 @@ export default function TransferRegister() {
     try {
       const transferData = transfers.find(t => t.id === transferId);
 
-      // If marking as Transferred (Mapped to 'Joined' in my schema), update personnel record
+      // If marking as Transferred, update personnel record
       if (newStatus === 'Transferred') {
-        const { error: pError } = await supabase
-          .from('personnel')
-          .update({
-            current_unit_id: transferData.to_unit_id,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', transferData.personnel_id);
-        
-        if (pError) throw pError;
+        await api.personnel.update(transferData.personnel_id, {
+          current_unit_id: transferData.to_unit_id,
+        });
       }
 
       const dbStatus = newStatus === 'Transferred' ? 'Joined' : newStatus;
-      const { error } = await supabase
-        .from('transfers')
-        .update({
-          status: dbStatus,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', transferId);
-      
-      if (error) throw error;
+      await api.transfers.update(transferId, { status: dbStatus });
 
       setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: newStatus } : t));
       toast.success(`Transfer marked as ${newStatus}.`);
     } catch (err) {
-      console.error('Update transfer error:', err);
       toast.error('Failed to update transfer status.');
     }
   }

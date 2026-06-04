@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { useNavigate } from 'react-router-dom';
 import { Send, UploadCloud, ArrowLeft, Calendar, UserCheck } from 'lucide-react';
 
@@ -32,16 +32,9 @@ export default function TransferApply() {
   async function loadData() {
     try {
       setLoading(true);
-      // Load personnel from this unit
-      const { data: pData, error: pError } = await supabase
-        .from('personnel')
-        .select('*')
-        .eq('current_unit_id', user.unitId || '')
-        .eq('service_status', 'Active')
-        .eq('is_deleted', false);
-      
-      if (pError) throw pError;
-      setPersonnel(pData.map(p => ({
+      // Load personnel
+      const pData = await api.personnel.list();
+      setPersonnel((pData||[]).filter(p => p.service_status === 'Active' && !p.is_deleted).map(p => ({
         id: p.id,
         fullName: p.full_name,
         rank: p.rank,
@@ -54,13 +47,8 @@ export default function TransferApply() {
       })));
 
       // Load all destination units
-      const { data: uData, error: uError } = await supabase
-        .from('units')
-        .select('*')
-        .order('name');
-      
-      if (uError) throw uError;
-      setUnits(uData.map(u => ({
+      const uData = await api.hierarchy.units();
+      setUnits((uData||[]).map(u => ({
         id: u.id,
         unitName: u.name,
         districtId: u.district_id,
@@ -68,11 +56,8 @@ export default function TransferApply() {
         stateId: u.state_id
       })));
     } catch (err) {
-      console.error('Load data error:', err);
       toast.error('Failed to load required data.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   function handleInputChange(e) {
@@ -95,53 +80,26 @@ export default function TransferApply() {
       
       let documentUrl = '';
       if (documentFile) {
-        const fileExt = documentFile.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`;
-        const filePath = `transfer_orders/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('personnel-docs')
-          .upload(filePath, documentFile);
-
-        if (uploadError) throw uploadError;
-
-        const { data: publicUrlData } = supabase.storage
-          .from('personnel-docs')
-          .getPublicUrl(filePath);
-        
-        documentUrl = publicUrlData.publicUrl;
+        // NOTE: File upload requires Cloudinary/AWS backend setup now.
+        // For now, we will skip uploading the actual file.
+        toast.info('File upload is temporarily disabled pending cloud storage setup.');
       }
 
-      const payload = {
+      await api.transfers.create({
         personnel_id: selectedPerson.id,
-        state_id: selectedPerson.stateId || '',
-        range_id: selectedPerson.rangeId || '',
-        district_id: selectedPerson.districtId || '',
-        
         from_unit_id: selectedPerson.currentUnitId || '',
         to_unit_id: destUnit.id,
-        
         order_number: formData.orderNumber,
         order_date: formData.transferDate,
         status: 'Ordered',
         remarks: documentUrl ? `Order Link: ${documentUrl}` : '',
-        
-        created_by_user_id: user.id || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase.from('transfers').insert([payload]);
-      if (error) throw error;
+      });
 
       toast.success('Transfer order initiated.');
       navigate('/transfer');
     } catch (err) {
-      console.error('Transfer submit error:', err);
       toast.error('Failed to initiate transfer.');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setLoading(false); }
   }
 
   if (loading) {

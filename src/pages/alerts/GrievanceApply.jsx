@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { useNavigate } from 'react-router-dom';
-import { Send, ArrowLeft, MessageSquare } from 'lucide-react';
+import { Send, ArrowLeft, Paperclip, X, FileText, Image } from 'lucide-react';
 
 export default function GrievanceApply() {
   const { user } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading]       = useState(true);
+  const [submitting, setSubmitting]  = useState(false);
   const [personnelInfo, setPersonnelInfo] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);  // attached files
+  const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
     subject: '',
@@ -29,36 +31,21 @@ export default function GrievanceApply() {
   async function loadPersonnelInfo() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('personnel')
-        .select('*')
-        .eq('belt_number', user.beltNumber)
-        .eq('is_deleted', false)
-        .single();
-      
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is no rows found
-      
-      if (data) {
+      // Personnel record dhundo — optional hai, user se fallback milega
+      const data = await api.personnel.list();
+      const myRecord = (data||[]).find(p => p.belt_number === user.beltNumber && !p.is_deleted);
+      if (myRecord) {
         setPersonnelInfo({
-          id: data.id,
-          fullName: data.full_name,
-          rank: data.rank,
-          beltNumber: data.belt_number,
-          stateId: data.state_id,
-          rangeId: data.range_id,
-          districtId: data.district_id,
-          currentUnitId: data.current_unit_id,
-          currentSubUnitId: data.current_sub_unit_id
+          id: myRecord.id, fullName: myRecord.full_name, rank: myRecord.rank,
+          beltNumber: myRecord.belt_number, mobileNumber: myRecord.mobile_number,
+          stateId: myRecord.state_id, rangeId: myRecord.range_id,
+          districtId: myRecord.district_id, currentUnitId: myRecord.current_unit_id,
         });
-      } else {
-         toast.warning('No personnel record found linked to your Belt Number.');
       }
+      // Personnel record na mile toh bhi chalega — user info se submit hoga
     } catch (err) {
-      console.error('Load personnel info error:', err);
-      toast.error('Failed to load your profile information.');
-    } finally {
-      setLoading(false);
-    }
+      // Silent fail — user info se kaam chalega
+    } finally { setLoading(false); }
   }
 
   function handleInputChange(e) {
@@ -66,50 +53,40 @@ export default function GrievanceApply() {
     setFormData(prev => ({ ...prev, [name]: value }));
   }
 
+  function handleFileChange(e) {
+    const newFiles = Array.from(e.target.files);
+    const combined = [...selectedFiles, ...newFiles].slice(0, 3); // max 3
+    setSelectedFiles(combined);
+    e.target.value = ''; // reset input
+  }
+
+  function removeFile(idx) {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  function fileIcon(file) {
+    if (file.type.startsWith('image/')) return <Image size={16} color="var(--primary-600)" />;
+    return <FileText size={16} color="var(--gray-500)" />;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
-    
-    if (!formData.subject || !formData.description) {
-      toast.warning('Please fill all required fields.');
-      return;
-    }
-
-    if (!personnelInfo) {
-      toast.error('Cannot submit: Personnel profile not linked.');
-      return;
-    }
-
+    if (!formData.subject || !formData.description) { toast.warning('Please fill all required fields.'); return; }
     setSubmitting(true);
     try {
-      const payload = {
-        applicant_name: personnelInfo.fullName || '',
-        applicant_mobile: personnelInfo.mobileNumber || '', // Add mobile if available
-        grievance_type: formData.subject,
-        description: formData.description,
-        status: 'Pending',
-        
-        state_id: personnelInfo.stateId || '',
-        range_id: personnelInfo.rangeId || '',
-        district_id: personnelInfo.districtId || '',
-        unit_id: personnelInfo.currentUnitId || '',
-        sub_unit_id: personnelInfo.currentSubUnitId || '',
-        
-        created_by_user_id: user.id || null, // Assuming user.id from AuthContext
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase.from('grievances').insert([payload]);
-      if (error) throw error;
-
+      await api.grievances.create({
+        // personnelInfo mile toh use karo, warna user object se fallback
+        applicant_name:   personnelInfo?.fullName   || user.name        || '',
+        applicant_mobile: personnelInfo?.mobileNumber || '',
+        grievance_type:   formData.subject,
+        description:      formData.description,
+        node_id:          user.nodeId || null,
+      }, selectedFiles);  // ← files pass karo
       toast.success('Grievance submitted successfully.');
       navigate('/grievances');
     } catch (err) {
-      console.error('Grievance submit error:', err);
       toast.error('Failed to submit grievance.');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   }
 
   if (loading) {
@@ -152,12 +129,12 @@ export default function GrievanceApply() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: 600, fontSize: '1.2rem'
                }}>
-                  {personnelInfo?.fullName?.[0] || 'U'}
+                  {(personnelInfo?.fullName || user.name)?.[0]?.toUpperCase() || 'U'}
                </div>
                <div>
-                  <h4 style={{ margin: 0 }}>{personnelInfo?.fullName || 'Unknown User'}</h4>
+                  <h4 style={{ margin: 0 }}>{personnelInfo?.fullName || user.name || 'User'}</h4>
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--gray-600)' }}>
-                     {personnelInfo?.rank || 'No Rank'} • {personnelInfo?.beltNumber || user.beltNumber}
+                     {personnelInfo?.rank || user.roleLabel || 'Staff'} • {personnelInfo?.beltNumber || user.beltNumber}
                   </p>
                </div>
             </div>
@@ -189,8 +166,109 @@ export default function GrievanceApply() {
               />
             </div>
             
+            {/* File Attachments — Improved UI */}
+            <div className="form-group">
+              <label className="form-label">
+                Attachments
+                <span style={{ fontWeight: 400, color: 'var(--gray-400)', marginLeft: 8 }}>
+                  Optional · Max 3 files · 5MB each · Photo / PDF / Word / Excel
+                </span>
+              </label>
+
+              {/* Drop Zone */}
+              {selectedFiles.length < 3 && (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--primary-500)'; e.currentTarget.style.backgroundColor = 'var(--primary-50)'; }}
+                  onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--gray-300)'; e.currentTarget.style.backgroundColor = 'var(--gray-50)'; }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    e.currentTarget.style.borderColor = 'var(--gray-300)';
+                    e.currentTarget.style.backgroundColor = 'var(--gray-50)';
+                    const dropped = Array.from(e.dataTransfer.files);
+                    const combined = [...selectedFiles, ...dropped].slice(0, 3);
+                    setSelectedFiles(combined);
+                  }}
+                  style={{
+                    border: '2px dashed var(--gray-300)',
+                    borderRadius: 10,
+                    padding: '24px 16px',
+                    backgroundColor: 'var(--gray-50)',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.2s',
+                    marginBottom: selectedFiles.length > 0 ? 12 : 0,
+                  }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
+                  <div style={{ fontSize: '2rem', marginBottom: 8 }}>📎</div>
+                  <div style={{ fontWeight: 600, color: 'var(--gray-700)', marginBottom: 4 }}>
+                    Click to attach or drag & drop
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--gray-400)' }}>
+                    🖼️ Image &nbsp;·&nbsp; 📄 PDF &nbsp;·&nbsp; 📝 Word &nbsp;·&nbsp; 📊 Excel
+                    &nbsp;&nbsp;({selectedFiles.length}/3 attached)
+                  </div>
+                </div>
+              )}
+
+              {/* Attached File Chips */}
+              {selectedFiles.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {selectedFiles.map((f, i) => {
+                    const isImg  = f.type.startsWith('image/');
+                    const isPdf  = f.type === 'application/pdf';
+                    const isXls  = f.type.includes('sheet') || f.type.includes('excel');
+                    const emoji  = isImg ? '🖼️' : isPdf ? '📄' : isXls ? '📊' : '📝';
+                    const sizeKB = (f.size / 1024).toFixed(0);
+                    return (
+                      <div key={i} style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '10px 14px', borderRadius: 8,
+                        backgroundColor: 'var(--white)',
+                        border: '1px solid var(--primary-200)',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                      }}>
+                        <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{emoji}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--gray-800)' }}>
+                            {f.name}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--gray-400)', marginTop: 2 }}>
+                            {sizeKB} KB
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(i)}
+                          title="Remove"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-400)', padding: 4, borderRadius: 4, flexShrink: 0 }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--danger-500)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--gray-400)'}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {selectedFiles.length < 3 && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--gray-400)', textAlign: 'center' }}>
+                      ↑ Drop zone above mein aur files add kar sakte hain ({3 - selectedFiles.length} remaining)
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <p style={{ fontSize: '0.8rem', color: 'var(--gray-500)', marginTop: 8 }}>
-               Note: Once submitted, your grievance will be routed to your Unit or District Administrator for review. 
+               Note: Once submitted, your grievance will be routed to your Unit or District Administrator for review.
                You can track the status from the Grievance Register.
             </p>
           </div>
@@ -199,7 +277,7 @@ export default function GrievanceApply() {
             <button type="button" className="btn btn-secondary" onClick={() => navigate('/grievances')}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={submitting || !personnelInfo}>
+            <button type="submit" className="btn btn-primary" disabled={submitting}>
               {submitting ? 'Submitting...' : <><Send size={18} /> Submit Grievance</>}
             </button>
           </div>

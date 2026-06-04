@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft, Edit2, ClipboardList, Clock, MapPin } from 'lucide-react';
-import { supabase } from '../../supabase';
+import { api } from '../../api/client';
 import { useToast } from '../../contexts/ToastContext';
+
+const CHITTHA_SECTIONS = [
+  { id: 'sec_sho', title: '1. SHO', mandatory: true },
+  { id: 'sec_investigation', title: '2. Investigation Staff', mandatory: true },
+  { id: 'sec_mhc', title: '3. MHC Staff', mandatory: true },
+  { id: 'sec_mm', title: '4. MM Staff', mandatory: true },
+  { id: 'sec_sho_mobile', title: '5. SHO Mobile', mandatory: true },
+  { id: 'sec_erv', title: '6. ERV (Emergency Response)', mandatory: false },
+  { id: 'sec_rider', title: '7. Rider / Patrol', mandatory: false },
+  { id: 'sec_general_duty', title: '8. General Duty', mandatory: true },
+  { id: 'sec_groupd_staff', title: '9. Group-D Staff', mandatory: true },
+  { id: 'sec_leave_rest', title: '10. Leave / Weekly Rest', mandatory: true },
+  { id: 'sec_unallocated', title: '11. Unallocated', mandatory: true }
+];
 
 export default function ChitthaPrintView() {
   const { id } = useParams();
@@ -20,56 +34,71 @@ export default function ChitthaPrintView() {
     try {
       setLoading(true);
       
-      const { data: chData, error: chError } = await supabase
-        .from('chitthas')
-        .select(`
-          *,
-          unit:unit_id (
-            name,
-            district:district_id (
-              name
-            )
-          )
-        `)
-        .eq('id', id)
-        .single();
-      
-      if (chError) throw chError;
+      const chData = await api.chitthas.get(id);
 
       if (chData) {
+        // Compute assignments
+        const mappedAssignments = (chData.assignments || []).map(a => ({
+          personnelName: a.full_name || a.personnel_name,
+          personnelRank: a.rank || a.personnel_rank,
+          personnelBelt: a.belt_number || a.personnel_belt,
+          personnelMobile: a.personnel_mobile || '—',
+          sectionId: a.section_name || a.section_id,
+          dutyPoint: a.duty_location || a.duty_point,
+          remarks: a.remark_text || a.remarks,
+          ...a
+        }));
+
+        // Compute Head Summary
+        const headSummary = [
+          { headName: 'Inspector', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'Sub-Inspector', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'ASI', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'Head Constable', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'Constable', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'SPO / Volunteer', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'Group-D', total: 0, absent: 0, leave: 0, present: 0 },
+          { headName: 'Other / Unspecified', total: 0, absent: 0, leave: 0, present: 0 },
+        ];
+
+        // Basic calculation based on mapped assignments
+        mappedAssignments.forEach(a => {
+          let hIndex = -1;
+          const r = (a.personnelRank || '').toLowerCase();
+          
+          if (r.includes('insp') && !r.includes('sub')) hIndex = 0;
+          else if (r.includes('sub-insp') || r === 'si') hIndex = 1;
+          else if (r.includes('asi')) hIndex = 2;
+          else if (r.includes('head const') || r === 'hc' || r === 'ehc') hIndex = 3;
+          else if (r.includes('constable') || r === 'ct' || r === 'epc') hIndex = 4;
+          else if (r.includes('spo') || r.includes('vol')) hIndex = 5;
+          else if (r.includes('group') || r.includes('sweeper') || r.includes('peon') || r.includes('cook')) hIndex = 6;
+          else hIndex = 7; // Other / Unspecified
+          
+          if (hIndex > -1) {
+             headSummary[hIndex].total += 1;
+             if (a.sectionId === 'sec_leave_rest') headSummary[hIndex].leave += 1;
+             else headSummary[hIndex].present += 1; // Assuming others are present for now
+          }
+        });
+
         setChittha({
           id: chData.id,
           chitthaDate: chData.chittha_date,
-          dateLabel: chData.date_label,
-          headSummary: chData.head_summary,
-          sectionConfigs: chData.section_configs,
-          unitName: chData.unit?.name || 'Unknown Unit',
-          districtName: chData.unit?.district?.name || 'Unknown District',
+          dateLabel: chData.date_label || 'Final Roster',
+          headSummary: headSummary,
+          sectionConfigs: CHITTHA_SECTIONS,
+          unitName: chData.unit_name || 'Unknown Unit',
+          districtName: chData.district_name || 'Rohtak', // Fallback since it's Rohtak range
           ...chData
         });
 
-        const { data: asData, error: asError } = await supabase
-          .from('chittha_assignments')
-          .select('*')
-          .eq('chittha_id', id);
-        
-        if (asError) throw asError;
-
-        setAssignments(asData.map(a => ({
-          personnelName: a.personnel_name,
-          personnelRank: a.personnel_rank,
-          personnelBelt: a.personnel_belt,
-          personnelMobile: a.personnel_mobile,
-          sectionId: a.section_id,
-          dutyPoint: a.duty_point,
-          remarks: a.remarks,
-          ...a
-        })));
+        setAssignments(mappedAssignments);
       } else {
         toast.error('Roster not found');
       }
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
       toast.error('Failed to load roster data');
     } finally {
       setLoading(false);

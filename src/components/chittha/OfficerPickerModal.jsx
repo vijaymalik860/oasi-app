@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Search, Check, User } from 'lucide-react';
-import { supabase } from '../../supabase';
-
+import { api } from '../../api/client';
 export default function OfficerPickerModal({ isOpen, onClose, onAdd, unitId }) {
   const [loading, setLoading] = useState(false);
   const [officers, setOfficers] = useState([]);
@@ -19,16 +18,9 @@ export default function OfficerPickerModal({ isOpen, onClose, onAdd, unitId }) {
   async function fetchOfficers() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('personnel')
-        .select('*')
-        .eq('current_unit_id', unitId)
-        .eq('is_deleted', false)
-        .eq('service_status', 'Active');
+      const data = await api.personnel.list({ unit_id: unitId });
       
-      if (error) throw error;
-      
-      setOfficers(data.map(o => ({
+      setOfficers((data||[]).map(o => ({
         id: o.id,
         fullName: o.full_name,
         rank: o.rank,
@@ -37,7 +29,7 @@ export default function OfficerPickerModal({ isOpen, onClose, onAdd, unitId }) {
         ...o
       })));
     } catch (err) {
-      console.error('Fetch officers error:', err);
+      if (import.meta.env.DEV) console.error('Fetch officers error:', err);
     } finally {
       setLoading(false);
     }
