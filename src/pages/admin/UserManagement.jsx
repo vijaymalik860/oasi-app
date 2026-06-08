@@ -251,15 +251,15 @@ export default function UserManagement() {
             </p>
           </div>
         </div>
-        <button className="btn btn-primary" onClick={openCreateModal}>
+        <button className="btn btn-primary desktop-only" onClick={openCreateModal}>
           <Plus size={18} className="mr-2" /> Naya User Banao
         </button>
       </div>
 
       {/* Search + Filter */}
       <div className="panel mb-6">
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-          <div className="form-group flex-1" style={{ marginBottom: 0, position: 'relative', minWidth: 220 }}>
+        <div className="search-filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <div className="form-group flex-1 search-input-wrapper" style={{ marginBottom: 0, position: 'relative', minWidth: 220 }}>
             <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--gray-400)' }} />
             <input
               type="text" className="form-input"
@@ -585,6 +585,11 @@ export default function UserManagement() {
           </div>
         </div>
       )}
+
+      {/* Floating Action Button (Mobile) */}
+      <button className="btn-primary fab-btn mobile-only" onClick={openCreateModal} title="Naya User Banao">
+        <Plus size={24} />
+      </button>
     </div>
   );
 }

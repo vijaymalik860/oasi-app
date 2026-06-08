@@ -126,6 +126,7 @@ export default function DeployManager() {
           </div>
         </div>
         <button 
+          className="desktop-only"
           onClick={triggerDeploy}
           disabled={isDeploying}
           style={{
@@ -145,7 +146,7 @@ export default function DeployManager() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24 }}>
+      <div className="deploy-panels">
         
         {/* TERMINAL SECTION */}
         <div className="panel" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '600px' }}>
@@ -256,6 +257,20 @@ export default function DeployManager() {
           </div>
         </div>
       </div>
+
+      {/* Floating Action Button (Mobile) */}
+      <button 
+        className="fab-btn mobile-only" 
+        onClick={triggerDeploy} 
+        disabled={isDeploying}
+        style={{ 
+          background: isDeploying ? 'var(--gray-300)' : 'linear-gradient(135deg, var(--primary-600), var(--primary-800))',
+          color: 'white', border: 'none'
+        }}
+        title="Trigger Deploy"
+      >
+        {isDeploying ? <RefreshCw size={24} className="spin" /> : <Rocket size={24} />}
+      </button>
     </div>
   );
 }

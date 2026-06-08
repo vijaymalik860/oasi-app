@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, Building2, ClipboardList,
   CalendarCheck, FileText, LogOut, Menu, X,
   Bell, UserCircle, Upload, Settings, ChevronRight,
-  Shield, Clock, ArrowRightLeft, MessageSquare, AlertCircle, Database, UserCog
+  Shield, Clock, ArrowRightLeft, MessageSquare, AlertCircle, Database, UserCog, ArrowLeft
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -52,6 +52,7 @@ export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const getPageTitle = () => {
     const flat = NAV_ITEMS.flatMap(s => s.items);
@@ -144,6 +145,18 @@ export default function AppLayout() {
             >
               <Menu size={20} />
             </button>
+            
+            {location.pathname !== '/dashboard' && (
+              <button 
+                onClick={() => navigate(-1)} 
+                className="btn btn-ghost" 
+                style={{ padding: '6px', marginRight: '8px', color: 'var(--gray-600)' }}
+                title="Go Back"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
+
             <h1 className="top-header-title">{getPageTitle()}</h1>
           </div>
           <div className="top-header-right">
