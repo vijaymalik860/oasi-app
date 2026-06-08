@@ -1580,6 +1580,15 @@ img {
 /* ── Tablets & Below (≤ 768px) ──────────────── */
 @media (max-width: 768px) {
 
+  /* Scale up fonts slightly for mobile readability */
+  :root {
+    --font-size-xs: 0.85rem;   /* increased from 0.75rem */
+    --font-size-sm: 0.95rem;   /* increased from 0.8125rem */
+    --font-size-base: 1.05rem; /* increased from 0.875rem */
+    --font-size-md: 1.15rem;   /* increased from 1rem */
+    --font-size-lg: 1.25rem;   /* increased from 1.125rem */
+  }
+
   /* Sidebar: becomes a slide-in drawer */
   .sidebar {
     transform: translateX(-100%);
