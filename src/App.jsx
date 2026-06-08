@@ -10,6 +10,9 @@ import ExcelImport from './pages/personnel/ExcelImport';
 import UnitSetup from './pages/admin/UnitSetup';
 import DropdownMaster from './pages/admin/DropdownMaster';
 import UserManagement from './pages/admin/UserManagement';
+import RoleManagement from './pages/admin/RoleManagement';
+import AuditLogs from './pages/admin/AuditLogs';
+import DeployManager from './pages/admin/DeployManager';
 import AttendanceRegister from './pages/attendance/AttendanceRegister';
 import ChitthaList from './pages/chittha/ChitthaList';
 import ChitthaEditor from './pages/chittha/ChitthaEditor';
@@ -43,11 +46,12 @@ function PublicRoute({ children }) {
   return children;
 }
 
-// AdminRoute allows both State and Super Admins
+// AdminRoute allows State Admin, Super Admin, and Range Admin
 function AdminRoute({ children }) {
-  const { user, loading, isStateAdmin, isSuperAdmin } = useAuth();
+  const { user, loading, isStateAdmin, isSuperAdmin, isRangeAdmin } = useAuth();
   if (loading) return null;
-  if (!user || (!isStateAdmin && !isSuperAdmin)) {
+  // Issue #6 Fix: range_admin bhi admin routes access kar sakta hai
+  if (!user || (!isStateAdmin && !isSuperAdmin && !isRangeAdmin)) {
     return <Navigate to="/dashboard" replace />;
   }
   return children;
@@ -99,7 +103,9 @@ export default function App() {
 
               {/* Phase 5+ placeholders */}
               <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
-              <Route path="/admin/roles" element={<ComingSoon title="Role Management" />} />
+              <Route path="/admin/roles" element={<AdminRoute><RoleManagement /></AdminRoute>} />
+              <Route path="/admin/audit-logs" element={<AdminRoute><AuditLogs /></AdminRoute>} />
+              <Route path="/admin/deploy" element={<AdminRoute><DeployManager /></AdminRoute>} />
               <Route path="/admin/settings" element={<ComingSoon title="Settings" />} />
             </Route>
 
