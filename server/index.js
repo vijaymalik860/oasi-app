@@ -14,6 +14,7 @@ const adminRoutes      = require('./routes/admin');
 const chitthaRoutes    = require('./routes/chittha');
 const leavesRoutes     = require('./routes/leaves');
 const reportsRoutes    = require('./routes/reports');
+const deployRoutes     = require('./routes/deploy');
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
@@ -61,6 +62,7 @@ app.use('/api/admin',      adminRoutes);
 app.use('/api/chitthas',   chitthaRoutes);
 app.use('/api/leaves',     leavesRoutes);
 app.use('/api/reports',    reportsRoutes);
+app.use('/api/deploy',     deployRoutes);
 
 // ── Static: Uploaded Files (Grievance Attachments, etc.) ──
 const path = require('path');
