@@ -11,7 +11,6 @@ router.use(authenticate);
 // GET /api/hierarchy/nodes?parentId=xxx
 router.get('/nodes', async (req, res) => {
   try {
-    // Normalize: browser may send string 'null' or 'undefined'
     const rawId = req.query.parentId;
     const parentId = (!rawId || rawId === 'null' || rawId === 'undefined') ? null : rawId;
 
@@ -30,6 +29,22 @@ router.get('/nodes', async (req, res) => {
     res.status(500).json({ error: 'Failed to load nodes.' });
   }
 });
+
+// GET /api/hierarchy/nodes-by-level?level=2  — Issue #2 Fix: range dropdown ke liye
+router.get('/nodes-by-level', async (req, res) => {
+  try {
+    const { level } = req.query;
+    if (!level) return res.status(400).json({ error: 'level param zaroori hai.' });
+    const { rows } = await pool.query(
+      `SELECT id, name, level, node_code FROM hierarchy_nodes WHERE level=$1 ORDER BY name`,
+      [parseInt(level)]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed.' });
+  }
+});
+
 
 // POST /api/hierarchy/nodes
 router.post('/nodes', async (req, res) => {

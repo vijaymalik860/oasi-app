@@ -84,6 +84,7 @@ router.post('/login', async (req, res) => {
     await pool.query('UPDATE app_users SET last_login = NOW() WHERE id = $1', [user.id]);
 
     // JWT issue karo
+    // Issue #10 Fix: stateId, districtId, unitId bhi token mein
     const token = jwt.sign(
       {
         uid:        user.id,
@@ -91,6 +92,9 @@ router.post('/login', async (req, res) => {
         role:       user.role_name,
         nodeId:     user.node_id,
         nodeName:   user.node_name,
+        stateId:    user.state_id    || null,
+        districtId: user.district_id || null,
+        unitId:     user.unit_id     || null,
       },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
