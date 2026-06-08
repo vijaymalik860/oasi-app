@@ -335,8 +335,8 @@ export default function UnitSetup() {
 
       {/* ── CSV IMPORT MODAL ── */}
       {showImportModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: '560px', width: '95%' }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: '560px', width: '95%', margin: 'auto' }}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Upload size={20} style={{ color: 'var(--primary-600)' }} />
@@ -479,8 +479,8 @@ export default function UnitSetup() {
 
       {/* ── NODE MODAL ── */}
       {showNodeModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: '400px', margin: 'auto' }}>
             <div className="modal-header">
               <h3>{editingNode ? 'Edit Node' : `Add to ${currentNode?.name || 'Root'}`}</h3>
               <button className="btn-close" onClick={() => setShowNodeModal(false)}><X size={20} /></button>
@@ -521,8 +521,8 @@ export default function UnitSetup() {
 
       {/* ── DELETE MODAL ── */}
       {deleteModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: '400px', margin: 'auto' }}>
             <div className="modal-header" style={{ color: 'var(--danger-600)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertTriangle size={20} />

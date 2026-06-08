@@ -153,8 +153,8 @@ export default function RoleManagement() {
       </div>
 
       {editModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 460 }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 460, margin: 'auto' }}>
             <div className="modal-header">
               <h3>Edit Role</h3>
               <button className="btn-close" onClick={() => setEditModal(null)}><X size={20} /></button>

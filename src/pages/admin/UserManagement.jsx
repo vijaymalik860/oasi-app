@@ -379,8 +379,8 @@ export default function UserManagement() {
 
       {/* ── CREATE MODAL ── */}
       {showModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 520 }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 520, margin: 'auto' }}>
             <div className="modal-header">
               <h3>Naya Admin Account Banao</h3>
               <button className="btn-close" onClick={() => setShowModal(false)}><X size={20} /></button>
@@ -495,8 +495,8 @@ export default function UserManagement() {
 
       {/* ── EDIT MODAL — Issue #8 Fix ── */}
       {editModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 460 }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 460, margin: 'auto' }}>
             <div className="modal-header">
               <h3>User Edit Karo</h3>
               <button className="btn-close" onClick={() => setEditModal(null)}><X size={20} /></button>
@@ -543,8 +543,8 @@ export default function UserManagement() {
 
       {/* ── RESET PASSWORD MODAL — Issue #5 Fix ── */}
       {resetModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 400 }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 400, margin: 'auto' }}>
             <div className="modal-header">
               <h3>Password Reset Karo</h3>
               <button className="btn-close" onClick={() => { setResetModal(null); setNewPassword(''); }}><X size={20} /></button>

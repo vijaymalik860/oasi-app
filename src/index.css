@@ -869,6 +869,13 @@ img {
 .modal-lg { max-width: 800px; }
 .modal-xl { max-width: 1000px; }
 
+.modal form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
