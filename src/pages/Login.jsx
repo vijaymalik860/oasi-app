@@ -31,6 +31,19 @@ export default function Login() {
     }
   };
 
+  const handleQuickLogin = async (belt, pass) => {
+    setLoading(true);
+    try {
+      await login(belt, pass);
+      toast.success('Login successful. Welcome to OASI Portal.');
+      navigate('/dashboard');
+    } catch (err) {
+      toast.error(err.message || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -42,6 +55,7 @@ export default function Login() {
           <p>Haryana Police — Digital Records System</p>
         </div>
 
+        {/* TEMPORARILY HIDDEN AUTHENTICATION FORM
         <form className="login-form" onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label" htmlFor="beltNumber">
@@ -102,6 +116,49 @@ export default function Login() {
             )}
           </button>
         </form>
+        */}
+
+        <div className="quick-login-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+          <button
+            onClick={() => handleQuickLogin('SA001', 'Admin@1234')}
+            className="btn btn-primary login-btn"
+            disabled={loading}
+          >
+            Login as Super Admin
+          </button>
+          <button
+            onClick={() => handleQuickLogin('STATE001', 'Admin@1234')}
+            className="btn btn-primary login-btn"
+            style={{ backgroundColor: '#4f46e5' }}
+            disabled={loading}
+          >
+            Login as State Admin
+          </button>
+          <button
+            onClick={() => handleQuickLogin('RANGE001', 'Admin@1234')}
+            className="btn btn-primary login-btn"
+            style={{ backgroundColor: '#0ea5e9' }}
+            disabled={loading}
+          >
+            Login as Range Admin (Ambala)
+          </button>
+          <button
+            onClick={() => handleQuickLogin('DIST001', 'Admin@1234')}
+            className="btn btn-primary login-btn"
+            style={{ backgroundColor: '#10b981' }}
+            disabled={loading}
+          >
+            Login as District Admin (Ambala)
+          </button>
+          <button
+            onClick={() => handleQuickLogin('UNIT002', 'Admin@1234')}
+            className="btn btn-primary login-btn"
+            style={{ backgroundColor: '#f59e0b' }}
+            disabled={loading}
+          >
+            Login as Unit Admin (Ambala Cantt)
+          </button>
+        </div>
 
         <div style={{ textAlign: 'center', marginTop: 20 }}>
 
