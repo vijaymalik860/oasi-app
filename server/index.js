@@ -25,8 +25,13 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow: no origin (curl/Postman), configured origin, localhost, and local network IPs
     const allowedOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
+    
+    // Automatically allow if hosted on Vercel and origin matches Vercel domains
+    const isVercel = process.env.VERCEL && origin && origin.includes('vercel.app');
+
     const isLocalNetwork = !origin
       || origin === allowedOrigin
+      || isVercel
       || /^http:\/\/(localhost|127\.0\.0\.1)/.test(origin)
       || /^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin);
 
