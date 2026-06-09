@@ -85,6 +85,10 @@ export const api = {
     },
     remove: (id) =>
       apiCall(`/api/personnel/${id}`, { method: 'DELETE' }),
+    postings: (id) =>
+      apiCall(`/api/personnel/${id}/postings`),
+    addPosting: (id, data) =>
+      apiCall(`/api/personnel/${id}/postings`, { method: 'POST', body: JSON.stringify(data) }),
   },
 
   // ATTENDANCE
@@ -101,6 +105,7 @@ export const api = {
 
   // HIERARCHY
   hierarchy: {
+    stats:      () => apiCall('/api/hierarchy/stats'),
     nodes:      (parentId) =>
       apiCall(`/api/hierarchy/nodes${parentId ? `?parentId=${parentId}` : ''}`),
     createNode: (data) =>

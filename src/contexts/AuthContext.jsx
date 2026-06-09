@@ -25,32 +25,16 @@ export default function AuthProvider({ children }) {
   // Session restore from localStorage
   useEffect(() => {
     async function syncSession() {
-      const stored = localStorage.getItem('oasi_user');
-      const token  = localStorage.getItem('oasi_token');
-
-      if (stored && token) {
-        try {
-          const parsed = JSON.parse(stored);
-          setUser(parsed); // Fast restore from cache
-
-          // Token se fresh data fetch karo backend se
-          const freshUser = await api.auth.me();
-          if (freshUser) {
-            const updatedUser = {
-              ...parsed,
-              ...freshUser,
-              roleLabel: ROLE_LABELS[freshUser.role] || freshUser.role,
-            };
-            localStorage.setItem('oasi_user', JSON.stringify(updatedUser));
-            setUser(updatedUser);
-          }
-        } catch (err) {
-          // Token invalid ya expire — logout
-          localStorage.removeItem('oasi_token');
-          localStorage.removeItem('oasi_user');
-          setUser(null);
-        }
-      }
+      // 🚨 MOCK SESSION FOR OPEN PORTAL (NO LOGIN REQUIRED)
+      const mockUser = {
+        uid: null,
+        name: 'Portal Admin',
+        beltNumber: 'ADMIN001',
+        role: 'super_admin',
+        roleLabel: 'Super Admin (Open Portal)',
+        stateId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', // Haryana State UUID
+      };
+      setUser(mockUser);
       setLoading(false);
     }
     syncSession();

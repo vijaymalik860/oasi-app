@@ -19,7 +19,10 @@ router.get('/field-types', async (req, res) => {
       [stateId || req.user.stateId]
     );
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: 'Failed.' }); }
+  } catch (err) { 
+    console.error('Error fetching field-types:', err);
+    res.status(500).json({ error: 'Failed.', details: err.message }); 
+  }
 });
 
 // POST /api/admin/field-types

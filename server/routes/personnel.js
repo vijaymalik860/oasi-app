@@ -1,4 +1,4 @@
-﻿// routes/personnel.js — Personnel CRUD
+// routes/personnel.js — Personnel CRUD
 const express      = require('express');
 const { pool }     = require('../db');
 const authenticate = require('../middleware/auth');
@@ -132,6 +132,42 @@ router.get('/:id', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Failed to load record.' });
+  }
+});
+
+// GET /api/personnel/:id/postings
+router.get('/:id/postings', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT pp.*, 
+              fn.name AS from_node_name, 
+              tn.name AS to_node_name
+       FROM personnel_posting pp
+       LEFT JOIN hierarchy_nodes fn ON fn.id = pp.from_node_id
+       LEFT JOIN hierarchy_nodes tn ON tn.id = pp.to_node_id
+       WHERE pp.personnel_id = $1
+       ORDER BY pp.posting_date DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load postings.' });
+  }
+});
+
+// POST /api/personnel/:id/postings
+router.post('/:id/postings', async (req, res) => {
+  try {
+    const { from_node_id, to_node_id, posting_date, order_number, remarks } = req.body;
+    await pool.query(
+      `INSERT INTO personnel_posting 
+        (personnel_id, from_node_id, to_node_id, posting_date, order_number, remarks) 
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.params.id, from_node_id || null, to_node_id || null, posting_date || null, order_number, remarks]
+    );
+    res.json({ message: 'Posting added successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add posting.' });
   }
 });
 
@@ -273,7 +309,7 @@ router.post('/upsert', async (req, res) => {
     res.status(isNew ? 201 : 200).json({ ...rows[0], _action: isNew ? 'created' : 'updated' });
   } catch (err) {
     console.error('[Personnel] Upsert error:', err.message);
-    res.status(500).json({ error: 'Failed to upsert record.' });
+    res.status(500).json({ error: 'Failed to upsert record.', details: err.message });
   }
 });
 

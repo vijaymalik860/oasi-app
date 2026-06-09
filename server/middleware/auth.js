@@ -2,18 +2,15 @@
 const jwt = require('jsonwebtoken');
 
 module.exports = function authenticate(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // "Bearer <token>"
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access denied. Login karo pehle.' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { uid, belt, role, nodeId, stateId, districtId, unitId }
-    next();
-  } catch (err) {
-    return res.status(403).json({ error: 'Token invalid ya expire ho gaya. Dobara login karo.' });
-  }
+  // 🚨 MOCK AUTHENTICATION FOR OPEN PORTAL (NO LOGIN REQUIRED)
+  req.user = { 
+    uid: null, 
+    belt: 'ADMIN001', 
+    role: 'super_admin', 
+    nodeId: null, 
+    stateId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 
+    districtId: null, 
+    unitId: null 
+  };
+  next();
 };

@@ -134,12 +134,14 @@ export default function PersonnelForm() {
   
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [postings, setPostings] = useState([]);
 
   useEffect(() => {
     loadStates();
     loadCategories();
     if (isEdit || isView) {
       loadPersonnel();
+      loadPostings();
       setShowPosting(true);
     } else {
       // Auto-fill scope based on role for NEW personnel
@@ -155,6 +157,15 @@ export default function PersonnelForm() {
       setShowPosting(true);
     }
   }, [id, user, isEdit]);
+
+  async function loadPostings() {
+    try {
+      const data = await api.personnel.postings(id);
+      setPostings(data || []);
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('Failed to load postings:', e);
+    }
+  }
 
   async function loadStates() {
     if (!isSuperAdmin) return;
@@ -877,6 +888,78 @@ export default function PersonnelForm() {
           </div>
         ))}
 
+
+        {/* Timeline View (Only visible in View Mode) */}
+        {isView && (
+          <div className="panel" style={{ marginBottom: 'var(--space-5)' }}>
+            <div className="panel-header"><h3>CURRENT POSTING</h3></div>
+            <div className="panel-body">
+              <div style={{ 
+                padding: '20px', 
+                backgroundColor: 'var(--gray-50)', 
+                borderRadius: '8px', 
+                borderLeft: '4px solid var(--primary-600)',
+                marginBottom: '30px'
+              }}>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: 'var(--gray-900)' }}>
+                  {form.rank} / {units.find(u => u.id === form.currentUnitId)?.unitName || districts.find(d => d.id === form.districtId)?.districtName || 'Unknown Location'}
+                </h4>
+                <p style={{ margin: 0, color: 'var(--gray-600)', fontSize: '0.9rem' }}>
+                  {form.rank} · since {form.dateOfPosting || 'Unknown'}
+                </p>
+              </div>
+
+              <h4 style={{ color: 'var(--gray-500)', fontSize: '0.9rem', marginBottom: '20px', letterSpacing: '0.5px' }}>CAREER TIMELINE</h4>
+              
+              {postings.length === 0 ? (
+                <p style={{ color: 'var(--gray-500)', fontStyle: 'italic' }}>No posting history available.</p>
+              ) : (
+                <div style={{ position: 'relative', paddingLeft: '60px' }}>
+                  {/* Vertical Line */}
+                  <div style={{
+                    position: 'absolute',
+                    left: '68px',
+                    top: '10px',
+                    bottom: '10px',
+                    width: '1px',
+                    backgroundColor: 'var(--gray-200)',
+                    zIndex: 0
+                  }}></div>
+                  
+                  {postings.map((posting, idx) => (
+                    <div key={posting.id} style={{ display: 'flex', marginBottom: '30px', position: 'relative', zIndex: 1 }}>
+                      <div style={{ width: '50px', textAlign: 'right', paddingRight: '20px', position: 'absolute', left: '-55px', fontWeight: 600, color: 'var(--primary-700)' }}>
+                        {new Date(posting.posting_date).getFullYear() || '—'}
+                      </div>
+                      <div style={{
+                        width: '12px', height: '12px', borderRadius: '50%', 
+                        backgroundColor: 'var(--primary-600)',
+                        border: '2px solid white',
+                        boxShadow: '0 0 0 1px var(--primary-600)',
+                        marginRight: '20px',
+                        marginTop: '4px',
+                        marginLeft: '3px'
+                      }}></div>
+                      <div>
+                        <h5 style={{ margin: '0 0 4px 0', color: 'var(--gray-900)', fontSize: '1rem' }}>
+                          {posting.to_node_name || 'Unknown Location'}
+                        </h5>
+                        {posting.order_number && (
+                          <p style={{ margin: 0, color: 'var(--primary-600)', fontSize: '0.8rem', opacity: 0.8 }}>
+                            Order: {posting.order_number}
+                          </p>
+                        )}
+                        <p style={{ margin: '4px 0 0 0', color: 'var(--gray-500)', fontSize: '0.85rem' }}>
+                          {toDateStr(posting.posting_date)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Submit */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginBottom: 40 }}>

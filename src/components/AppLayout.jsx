@@ -12,37 +12,21 @@ const NAV_ITEMS = [
   {
     section: 'Main',
     items: [
-      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['state_admin', 'range_admin', 'district_admin', 'unit_admin', 'super_admin'] },
+      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin'] },
     ],
   },
   {
-    section: 'Management',
+    section: 'Organization',
     items: [
-      { to: '/units', label: 'Unit Setup', icon: Building2, roles: ['state_admin', 'super_admin'] },
-      { to: '/dropdown-master', label: 'Dropdown Master', icon: Database, roles: ['state_admin', 'super_admin'] },
-      { to: '/personnel', label: 'Personnel', icon: Users, roles: ['state_admin', 'district_admin', 'unit_admin', 'super_admin'] },
-      { to: '/personnel/import', label: 'Import Data', icon: Upload, roles: ['state_admin', 'district_admin', 'unit_admin', 'super_admin'] },
+      { to: '/hierarchy', label: 'Hierarchy Tree', icon: Building2, roles: ['super_admin'] },
+      { to: '/dropdown-master', label: 'Dropdown Master', icon: Database, roles: ['super_admin'] },
     ],
   },
   {
-    section: 'Registers',
+    section: 'Data',
     items: [
-      { to: '/attendance', label: 'Attendance', icon: CalendarCheck, roles: ['state_admin', 'district_admin', 'unit_admin', 'super_admin'] },
-      { to: '/chitthas', label: 'Naukari Chittha', icon: ClipboardList, roles: ['state_admin', 'district_admin', 'unit_admin', 'super_admin'] },
-      { to: '/leave', label: 'Leave Register', icon: Clock, roles: ['state_admin', 'range_admin', 'district_admin', 'unit_admin', 'super_admin'] },
-      { to: '/transfer', label: 'Transfers', icon: ArrowRightLeft, roles: ['state_admin', 'range_admin', 'district_admin', 'unit_admin', 'super_admin'] },
-      { to: '/reports/fir', label: 'FIR & Reports', icon: FileText, roles: ['state_admin', 'range_admin', 'district_admin', 'unit_admin', 'super_admin'] },
-    ],
-  },
-  {
-    section: 'Admin',
-    items: [
-      { to: '/grievances', label: 'Grievances', icon: MessageSquare, roles: ['state_admin', 'district_admin', 'unit_admin', 'staff', 'super_admin'] },
-      { to: '/admin/users', label: 'User Management', icon: UserCog, roles: ['state_admin', 'super_admin'] },
-      { to: '/admin/roles', label: 'Role Management', icon: Shield, roles: ['state_admin', 'super_admin'] },
-      { to: '/admin/audit-logs', label: 'Audit Logs', icon: FileText, roles: ['state_admin', 'super_admin'] },
-      { to: '/admin/deploy', label: 'Deploy Manager', icon: Database, roles: ['super_admin'] },
-      { to: '/admin/settings', label: 'Settings', icon: Settings, roles: ['state_admin', 'super_admin'] },
+      { to: '/personnel', label: 'Personnel Master', icon: Users, roles: ['super_admin'] },
+      { to: '/personnel/import', label: 'Import Personnel', icon: Upload, roles: ['super_admin'] },
     ],
   },
 ];
@@ -124,14 +108,6 @@ export default function AppLayout() {
               <div className="role">{user?.roleLabel || 'Admin'}</div>
             </div>
           </div>
-          <button
-            className="sidebar-link"
-            onClick={logout}
-            style={{ marginTop: 8, color: 'rgba(255,255,255,0.6)' }}
-          >
-            <LogOut className="icon" size={20} />
-            Logout
-          </button>
         </div>
       </aside>
 

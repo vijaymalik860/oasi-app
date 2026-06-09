@@ -45,6 +45,29 @@ router.get('/nodes-by-level', async (req, res) => {
   }
 });
 
+// GET /api/hierarchy/stats — For Dashboard Org Structure
+router.get('/stats', async (req, res) => {
+  try {
+    const { rows: levels } = await pool.query('SELECT level, count(*)::integer as count FROM hierarchy_nodes GROUP BY level ORDER BY level');
+    
+    // Count the actual Special Units (which are at Level 3 under the 'Special Units' umbrella node at Level 2)
+    const { rows: specialUnitsNodes } = await pool.query(`
+      SELECT count(*)::integer as count 
+      FROM hierarchy_nodes 
+      WHERE level=3 AND parent_id = (SELECT id FROM hierarchy_nodes WHERE name ILIKE '%Special Units%' LIMIT 1)
+    `);
+    
+    const specialUnitsCount = specialUnitsNodes[0]?.count || 0;
+
+    res.json({
+      levels: levels,
+      specialUnits: specialUnitsCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load stats.' });
+  }
+});
+
 
 // POST /api/hierarchy/nodes
 router.post('/nodes', async (req, res) => {
@@ -266,13 +289,13 @@ router.get('/districts', async (req, res) => {
     const { rangeId, stateId } = req.query;
     let q, params;
     if (rangeId) {
-      q = `SELECT d.id, d.name, r.parent_id AS "stateId" FROM hierarchy_nodes d LEFT JOIN hierarchy_nodes r ON d.parent_id = r.id WHERE d.level=3 AND d.parent_id=$1 ORDER BY d.name`;
+      q = `SELECT d.id, d.name, r.parent_id AS "stateId", r.name AS "rangeName" FROM hierarchy_nodes d LEFT JOIN hierarchy_nodes r ON d.parent_id = r.id WHERE d.level=3 AND d.parent_id=$1 ORDER BY d.name`;
       params = [rangeId];
     } else if (stateId) {
-      q = `SELECT d.id, d.name, r.parent_id AS "stateId" FROM hierarchy_nodes d LEFT JOIN hierarchy_nodes r ON d.parent_id = r.id WHERE d.level=3 AND r.parent_id=$1 ORDER BY d.name`;
+      q = `SELECT d.id, d.name, r.parent_id AS "stateId", r.name AS "rangeName" FROM hierarchy_nodes d LEFT JOIN hierarchy_nodes r ON d.parent_id = r.id WHERE d.level=3 AND r.parent_id=$1 ORDER BY d.name`;
       params = [stateId];
     } else {
-      q = `SELECT d.id, d.name, r.parent_id AS "stateId" FROM hierarchy_nodes d LEFT JOIN hierarchy_nodes r ON d.parent_id = r.id WHERE d.level=3 ORDER BY d.name`;
+      q = `SELECT d.id, d.name, r.parent_id AS "stateId", r.name AS "rangeName" FROM hierarchy_nodes d LEFT JOIN hierarchy_nodes r ON d.parent_id = r.id WHERE d.level=3 ORDER BY d.name`;
       params = [];
     }
     const { rows } = await pool.query(q, params);
