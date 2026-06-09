@@ -89,12 +89,17 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start ──
-app.listen(PORT, () => {
-  console.log('');
-  console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║  OASI Portal — Haryana Police API    ║');
-  console.log(`  ║  Running on http://localhost:${PORT}    ║`);
-  console.log('  ║  Health: /api/health                 ║');
-  console.log('  ╚══════════════════════════════════════╝');
-  console.log('');
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log('');
+    console.log('  ╔══════════════════════════════════════╗');
+    console.log('  ║  OASI Portal — Haryana Police API    ║');
+    console.log(`  ║  Running on http://localhost:${PORT}    ║`);
+    console.log('  ║  Health: /api/health                 ║');
+    console.log('  ╚══════════════════════════════════════╝');
+    console.log('');
+  });
+}
+
+// Export for Vercel serverless
+module.exports = app;
