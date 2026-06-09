@@ -117,7 +117,7 @@ export default function Dashboard() {
     <div className="dashboard-content">
       <div className="page-header">
         <div>
-          <h2>OASI Overview</h2>
+          <h2>DMS Overview</h2>
           <span style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </span>
