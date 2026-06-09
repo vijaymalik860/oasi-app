@@ -59,7 +59,7 @@ export default function AppLayout() {
     // Sort by path length descending so more specific paths match before shorter ones (e.g. /personnel/import before /personnel)
     const sorted = [...flat].sort((a, b) => b.to.length - a.to.length);
     const match = sorted.find(i => location.pathname.startsWith(i.to));
-    return match?.label || 'OASI Portal';
+    return match?.label || 'Duty Management System (DMS)';
   };
 
   const userInitials = user?.name
@@ -77,9 +77,9 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="sidebar-brand-logo">O</div>
+          <div className="sidebar-brand-logo">D</div>
           <div className="sidebar-brand-text">
-            <h1>OASI Portal</h1>
+            <h1 style={{ fontSize: '1rem', lineHeight: '1.2' }}>Duty Management System (DMS)</h1>
             <span>Haryana Police</span>
           </div>
           <button

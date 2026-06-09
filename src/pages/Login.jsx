@@ -22,7 +22,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(beltNumber.trim(), password);
-      toast.success('Login successful. Welcome to OASI Portal.');
+      toast.success('Login successful. Welcome to Duty Management System (DMS).');
       navigate('/dashboard');
     } catch (err) {
       toast.error(err.message || 'Login failed. Please try again.');
@@ -35,7 +35,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(belt, pass);
-      toast.success('Login successful. Welcome to OASI Portal.');
+      toast.success('Login successful. Welcome to Duty Management System (DMS).');
       navigate('/dashboard');
     } catch (err) {
       toast.error(err.message || 'Login failed. Please try again.');
@@ -51,7 +51,7 @@ export default function Login() {
           <div className="emblem">
             <Shield size={32} color="#fff" />
           </div>
-          <h2>OASI Portal</h2>
+          <h2>Duty Management System (DMS)</h2>
           <p>Haryana Police — Digital Records System</p>
         </div>
 
@@ -163,7 +163,7 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginTop: 20 }}>
 
           <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 10 }}>
-            © 2026 OASI Portal — Haryana Police
+            © 2026 Duty Management System (DMS) — Haryana Police
           </p>
         </div>
       </div>

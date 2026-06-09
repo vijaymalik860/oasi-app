@@ -1,4 +1,4 @@
-// OASI Portal — Express Backend Server
+// Duty Management System (DMS) — Express Backend Server
 require('dotenv').config();
 const express    = require('express');
 const cors       = require('cors');
@@ -98,7 +98,7 @@ if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log('');
     console.log('  ╔══════════════════════════════════════╗');
-    console.log('  ║  OASI Portal — Haryana Police API    ║');
+    console.log('  ║  Duty Management System (DMS) API    ║');
     console.log(`  ║  Running on http://localhost:${PORT}    ║`);
     console.log('  ║  Health: /api/health                 ║');
     console.log('  ╚══════════════════════════════════════╝');

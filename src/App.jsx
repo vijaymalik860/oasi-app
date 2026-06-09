@@ -31,7 +31,7 @@ function ProtectedRoute({ children }) {
     return (
       <div className="loading-screen">
         <div className="spinner spinner-lg"></div>
-        <p>Loading OASI Portal...</p>
+        <p>Loading Duty Management System (DMS)...</p>
       </div>
     );
   }
