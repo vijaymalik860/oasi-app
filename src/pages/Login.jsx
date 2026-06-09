@@ -120,7 +120,7 @@ export default function Login() {
 
         <div className="quick-login-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
           <button
-            onClick={() => handleQuickLogin('SA001', 'Admin@1234')}
+            onClick={() => handleQuickLogin('ADMIN001', 'Admin@1234')}
             className="btn btn-primary login-btn"
             disabled={loading}
           >
